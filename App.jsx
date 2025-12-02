@@ -353,7 +353,10 @@ export default function App() {
                     <span className="text-sm font-medium hidden md:inline truncate max-w-[100px]">{userProfile.name || 'Penulis'}</span>
                 </button>
             ) : (
-                <button onClick={() => setView('login')} className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-full text-sm font-bold hover:bg-orange-700 transition">Masuk / Daftar</button>
+                <button onClick={() => setView('login')} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-full text-sm font-bold hover:bg-gray-800 transition shadow-md">
+  <Key size={16} />
+  Login Penulis
+</button>
             )}
           </div>
         </div>
@@ -488,3 +491,4 @@ export default function App() {
     </div>
   );
 }
+
