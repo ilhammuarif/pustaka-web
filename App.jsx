@@ -343,7 +343,7 @@ export default function App() {
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
           <div onClick={() => { resetForm(); setView('home'); }} className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition">
             <BookOpen className="text-orange-600" size={28} />
-            <span className="font-bold text-xl tracking-tight text-gray-800 hidden md:inline">Pustaka<span className="text-orange-600">Kita</span></span>
+            <span className="font-bold text-xl tracking-tight text-gray-800 hidden md:inline">Novel<span className="text-orange-600">in</span></span>
           </div>
           <div className="flex gap-2">
             <button onClick={() => { resetForm(); setView('home'); }} className={`p-2 rounded-full transition ${view === 'home' ? 'bg-orange-100 text-orange-600' : 'text-gray-500 hover:bg-gray-100'}`} title="Beranda"><Home size={22} /></button>
@@ -404,7 +404,7 @@ export default function App() {
         {view === 'home' && (
           <div className="animate-fade-in">
              <div className="mb-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-2xl p-8 text-white shadow-lg relative overflow-hidden">
-               <div className="relative z-10"><h1 className="text-3xl font-bold mb-2">Selamat Datang di Pustaka Kita</h1><p className="opacity-90 max-w-lg mb-6">Mulai petualanganmu menulis cerita atau baca karya seru dari penulis lain.</p><div className="flex gap-3">{user ? (<><button onClick={startWritingNew} className="bg-white text-orange-600 px-6 py-2 rounded-full font-semibold hover:bg-orange-50 transition shadow-md flex items-center gap-2"><PlusCircle size={20} /> Tulis Cerita</button><button onClick={() => setView('profile')} className="bg-orange-600 border border-white/30 text-white px-6 py-2 rounded-full font-semibold hover:bg-orange-700 transition shadow-md flex items-center gap-2"><User size={20} /> Profil Saya</button></>) : (<button onClick={() => setView('login')} className="bg-white text-orange-600 px-6 py-2 rounded-full font-bold hover:bg-orange-50 transition shadow-md">Masuk untuk Menulis</button>)}</div></div><BookOpen size={200} className="absolute -right-10 -bottom-10 text-white opacity-10 rotate-12" /></div>
+               <div className="relative z-10"><h1 className="text-3xl font-bold mb-2">Selamat Datang di Novelin</h1><p className="opacity-90 max-w-lg mb-6">Mulai petualanganmu menulis cerita atau baca karya seru dari penulis lain.</p><div className="flex gap-3">{user ? (<><button onClick={startWritingNew} className="bg-white text-orange-600 px-6 py-2 rounded-full font-semibold hover:bg-orange-50 transition shadow-md flex items-center gap-2"><PlusCircle size={20} /> Tulis Cerita</button><button onClick={() => setView('profile')} className="bg-orange-600 border border-white/30 text-white px-6 py-2 rounded-full font-semibold hover:bg-orange-700 transition shadow-md flex items-center gap-2"><User size={20} /> Profil Saya</button></>) : (<button onClick={() => setView('login')} className="bg-white text-orange-600 px-6 py-2 rounded-full font-bold hover:bg-orange-50 transition shadow-md">Masuk untuk Menulis</button>)}</div></div><BookOpen size={200} className="absolute -right-10 -bottom-10 text-white opacity-10 rotate-12" /></div>
             <h2 className="text-xl font-bold mb-6 border-l-4 border-orange-500 pl-3">Daftar Bacaan Terbaru</h2>
             {stories.length === 0 ? (<div className="text-center py-20 text-gray-400"><BookOpen size={48} className="mx-auto mb-4 opacity-20" /><p>Belum ada novel.</p></div>) : (<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">{stories.map(story => (<div key={story.id} onClick={() => { setCurrentStory(story); setActiveChapterIndex(null); setView('read'); }} className="group cursor-pointer flex flex-col gap-2 relative"><div className="aspect-[2/3] w-full rounded-lg overflow-hidden shadow-md group-hover:shadow-xl transition relative bg-gray-200"><img src={story.coverUrl} alt={story.title} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" onError={(e) => {e.target.src = 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover'}} /><div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded-full backdrop-blur-sm">{story.chapters.length} Bab</div></div><div><h3 className="font-bold text-gray-800 leading-tight group-hover:text-orange-600">{story.title}</h3><p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><User size={10} /> {story.authorName || 'Anonim'}</p></div></div>))}</div>)}
           </div>
@@ -491,4 +491,5 @@ export default function App() {
     </div>
   );
 }
+
 
