@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, PenTool, Home, Image as ImageIcon, Save, ArrowLeft, PlusCircle, User, X, Info, UploadCloud, Edit, Trash2, List, ChevronRight, ChevronLeft, Link as LinkIcon, AlertCircle, Eye, FileText, AlertTriangle, Settings, LogOut, Lock, Mail } from 'lucide-react';
+import { BookOpen, PenTool, Home, Image as ImageIcon, Save, ArrowLeft, PlusCircle, User, X, Info, UploadCloud, Edit, Trash2, List, ChevronRight, ChevronLeft, Link as LinkIcon, AlertCircle, Eye, FileText, AlertTriangle, Settings, LogOut, Lock, Mail, Key, Loader2 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithCustomToken } from "firebase/auth";
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, getDoc } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// --- 1. KONFIGURASI FIREBASE (WebNovelKuu) ---
+// --- 1. KONFIGURASI FIREBASE (Milik Ilham - WebNovelKuu) ---
 const firebaseConfig = {
   apiKey: "AIzaSyBnc9NMHH4bQdfBm4E1EIKmCbhCvX23yEA",
   authDomain: "webnovelkuu.firebaseapp.com",
@@ -14,10 +15,15 @@ const firebaseConfig = {
   appId: "1:758683527144:web:069e6ef93b87158ef9265d"
 };
 
+// --- KODE RAHASIA PENDAFTARAN ---
+// Ganti tulisan ini jika ingin mengubah password pendaftaran
+const SECRET_CODE = "VIP-ILHAM"; 
+
 // Inisialisasi Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // ID Aplikasi Statis
 const appId = 'pustaka-utama'; 
@@ -29,6 +35,7 @@ export default function App() {
   // State Auth (Login/Register)
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [regCode, setRegCode] = useState(''); // Input kode rahasia
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -57,25 +64,26 @@ export default function App() {
   const [notification, setNotification] = useState('');
   const [editingId, setEditingId] = useState(null);
 
-  // State Modal & Konfirmasi
+  // State Modal & Upload
   const [showImageModal, setShowImageModal] = useState(false);
   const [tempImageUrl, setTempImageUrl] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [imageModalMode, setImageModalMode] = useState('content'); 
+  
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false, title: '', message: '', onConfirm: null
   });
 
   // --- 2. Inisialisasi Auth ---
   useEffect(() => {
-    // Cek token auth bawaan (untuk environment preview ini)
     const initAuth = async () => {
       if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) { console.log("Login manual diperlukan."); }
+        try { await signInWithCustomToken(auth, __initial_auth_token); } catch (e) {}
       }
     };
     initAuth();
     
-    // Listener Perubahan Status Login
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
@@ -91,13 +99,18 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  // --- 3. Fungsi Auth ---
+  // --- 3. Fungsi Auth (Login/Register) ---
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
     setAuthLoading(true);
+
     try {
         if (isRegistering) {
+            // CEK KODE RAHASIA
+            if (regCode.trim() !== SECRET_CODE) {
+                throw new Error("kode-salah");
+            }
             await createUserWithEmailAndPassword(auth, email, password);
             showNotification("Akun berhasil dibuat! Selamat datang.");
         } else {
@@ -105,14 +118,21 @@ export default function App() {
             showNotification("Berhasil masuk.");
         }
     } catch (error) {
-        console.error("Auth Error:", error);
+        // Jangan spam console jika errornya cuma salah kode
+        if (error.message !== "kode-salah") {
+            console.error("Auth Error:", error);
+        }
+        
         let msg = "Terjadi kesalahan.";
-        if (error.code === 'auth/invalid-email') msg = "Format email salah.";
-        if (error.code === 'auth/invalid-credential') msg = "Email atau password salah.";
-        if (error.code === 'auth/email-already-in-use') msg = "Email sudah terdaftar.";
-        if (error.code === 'auth/weak-password') msg = "Password terlalu lemah.";
+        if (error.message === "kode-salah") msg = "Kode Pendaftaran SALAH! Hubungi admin."; // HINT DIHAPUS
+        else if (error.code === 'auth/invalid-email') msg = "Format email salah.";
+        else if (error.code === 'auth/invalid-credential') msg = "Email atau password salah.";
+        else if (error.code === 'auth/email-already-in-use') msg = "Email sudah terdaftar.";
+        else if (error.code === 'auth/weak-password') msg = "Password terlalu lemah.";
         setAuthError(msg);
-    } finally { setAuthLoading(false); }
+    } finally {
+        setAuthLoading(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -124,15 +144,13 @@ export default function App() {
   // --- 4. Listener Data Cerita ---
   useEffect(() => {
     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'stories'), orderBy('createdAt', 'desc'));
-    const unsubscribeData = onSnapshot(q, (snapshot) => {
-      const storiesData = snapshot.docs.map(doc => {
-        const data = doc.data();
-        if (!data.chapters && data.content) data.chapters = [{ title: "Bagian Utama", content: data.content }];
-        return { id: doc.id, ...data, chapters: data.chapters || [] };
-      });
-      setStories(storiesData);
-    }, (error) => console.error("Error data:", error));
-    return () => unsubscribeData();
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setStories(snapshot.docs.map(doc => ({
+        id: doc.id, ...doc.data(),
+        chapters: doc.data().chapters || [{ title: "Bagian Utama", content: doc.data().content }]
+      })));
+    });
+    return () => unsubscribe();
   }, []); 
 
   // --- 5. Fungsi Logika App ---
@@ -237,6 +255,39 @@ export default function App() {
     finally { setIsSaving(false); }
   };
 
+  // --- FILE UPLOAD HANDLER ---
+  const handleUploadAndSave = async () => {
+    if (imageFile) {
+        setIsUploading(true);
+        try {
+            const storageRef = ref(storage, `images/${Date.now()}_${imageFile.name}`);
+            const snapshot = await uploadBytes(storageRef, imageFile);
+            const downloadURL = await getDownloadURL(snapshot.ref);
+            applyImage(downloadURL);
+            showNotification("Gambar berhasil diupload!");
+        } catch (error) {
+            console.error("Upload gagal:", error);
+            showNotification("Gagal upload gambar.");
+        } finally { setIsUploading(false); }
+    } else if (tempImageUrl) {
+        let finalUrl = tempImageUrl;
+        if (tempImageUrl.includes('drive.google.com') || tempImageUrl.includes('docs.google.com')) {
+          const idMatch = tempImageUrl.match(/[-\w]{25,}/);
+          if (idMatch) finalUrl = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1200`;
+        }
+        applyImage(finalUrl);
+    } else {
+        showNotification("Pilih file atau masukkan link!");
+    }
+  };
+
+  const applyImage = (url) => {
+    if (imageModalMode === 'cover') setCoverUrl(url);
+    else if (imageModalMode === 'profile') setUserProfile(prev => ({ ...prev, photoUrl: url }));
+    else setChapterContent(prev => prev + `\n\n[GAMBAR: ${url}]\n\n`);
+    setShowImageModal(false); setTempImageUrl(''); setImageFile(null);
+  };
+
   const showNotification = (msg) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
 
   const resetForm = () => {
@@ -256,7 +307,6 @@ export default function App() {
   const handleSaveImageLink = () => {
     if (!tempImageUrl) { setShowImageModal(false); return; }
     let finalUrl = tempImageUrl;
-    // Fitur: Google Drive Converter
     if (tempImageUrl.includes('drive.google.com') || tempImageUrl.includes('docs.google.com')) {
       const idMatch = tempImageUrl.match(/[-\w]{25,}/);
       if (idMatch) {
@@ -329,12 +379,20 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-fade-in">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold flex items-center gap-2"><ImageIcon className="text-orange-600" /> {imageModalMode === 'cover' ? 'Sampul Novel' : imageModalMode === 'profile' ? 'Foto Profil' : 'Sisipkan Ilustrasi'}</h3>
+              <h3 className="text-lg font-bold flex items-center gap-2"><ImageIcon className="text-orange-600" /> Upload Gambar</h3>
               <button onClick={() => setShowImageModal(false)}><X size={24} /></button>
             </div>
-            <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-900 mb-4 border border-blue-100"><p className="font-bold mb-1">Tips Upload:</p><p className="opacity-90 text-xs">Gunakan link <strong>Google Drive</strong> (Share Public) atau link gambar langsung.</p></div>
-            <div className="space-y-3"><label className="block text-sm font-medium text-gray-700">Link Gambar</label><div className="flex gap-2"><div className="relative flex-1"><LinkIcon size={16} className="absolute left-3 top-3 text-gray-400" /><input type="text" value={tempImageUrl} onChange={(e) => setTempImageUrl(e.target.value)} placeholder="https://..." className="w-full pl-9 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" /></div></div></div>
-            <div className="flex justify-end gap-2 mt-6"><button onClick={() => setShowImageModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button><button onClick={handleSaveImageLink} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 shadow-sm font-medium">Proses & Simpan</button></div>
+            <div className="space-y-4">
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition cursor-pointer relative">
+                    <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files[0])} className="absolute inset-0 opacity-0 cursor-pointer" />
+                    <UploadCloud className="mx-auto text-gray-400 mb-2" size={32} />
+                    <p className="text-sm text-gray-600 font-medium">{imageFile ? imageFile.name : "Klik untuk pilih file"}</p>
+                    <p className="text-xs text-gray-400 mt-1">Maks 1 MB</p>
+                </div>
+                <div className="text-center text-gray-400 text-xs">- ATAU -</div>
+                <div><label className="block text-xs font-medium text-gray-700 mb-1">Link Gambar (URL)</label><input type="text" value={tempImageUrl} onChange={(e) => setTempImageUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border rounded-lg text-sm" /></div>
+                <button onClick={handleUploadAndSave} disabled={isUploading || (!imageFile && !tempImageUrl)} className="w-full bg-orange-600 text-white py-2 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 flex justify-center items-center gap-2">{isUploading ? <><Loader2 className="animate-spin" size={18}/> Mengupload...</> : "Simpan Gambar"}</button>
+            </div>
           </div>
         </div>
       )}
@@ -353,7 +411,9 @@ export default function App() {
             <div className="flex items-center justify-center py-10 animate-fade-in">
                 <div className="bg-white w-full max-w-md p-8 rounded-2xl shadow-xl border border-gray-100">
                     <div className="text-center mb-8"><BookOpen className="text-orange-600 mx-auto mb-3" size={40} /><h2 className="text-2xl font-bold text-gray-800">{isRegistering ? 'Buat Akun Baru' : 'Masuk ke Pustaka'}</h2><p className="text-gray-500 text-sm mt-2">Bergabunglah untuk mulai berkarya.</p></div>
-                    <form onSubmit={handleAuth} className="space-y-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Email</label><div className="relative"><Mail className="absolute left-3 top-3 text-gray-400" size={18} /><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="contoh@email.com" /></div></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Password</label><div className="relative"><Lock className="absolute left-3 top-3 text-gray-400" size={18} /><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="******" /></div></div>{authError && (<div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertCircle size={16} /> {authError}</div>)}<button type="submit" disabled={authLoading} className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-bold hover:bg-orange-700 transition shadow-lg disabled:opacity-50">{authLoading ? 'Memproses...' : (isRegistering ? 'Daftar Akun Baru' : 'Masuk Sekarang')}</button></form>
+                    <form onSubmit={handleAuth} className="space-y-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Email</label><div className="relative"><Mail className="absolute left-3 top-3 text-gray-400" size={18} /><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="contoh@email.com" /></div></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Password</label><div className="relative"><Lock className="absolute left-3 top-3 text-gray-400" size={18} /><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="******" /></div></div>
+                    {isRegistering && (<div><label className="block text-sm font-medium text-gray-700 mb-1">Kode Pendaftaran (Wajib)</label><div className="relative"><Key className="absolute left-3 top-3 text-gray-400" size={18} /><input type="text" required value={regCode} onChange={(e) => setRegCode(e.target.value)} className="w-full pl-10 p-2.5 border-2 border-orange-100 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-orange-50" placeholder="Kode Rahasia dari Admin" /></div><p className="text-[10px] text-gray-400 mt-1 italic">*Hanya yang punya kode ini yang bisa daftar.</p></div>)}
+                    {authError && (<div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertCircle size={16} /> {authError}</div>)}<button type="submit" disabled={authLoading} className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-bold hover:bg-orange-700 transition shadow-lg disabled:opacity-50">{authLoading ? 'Memproses...' : (isRegistering ? 'Daftar Akun Baru' : 'Masuk Sekarang')}</button></form>
                     <div className="mt-6 text-center text-sm"><p className="text-gray-600">{isRegistering ? 'Sudah punya akun?' : 'Belum punya akun?'}<button onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }} className="ml-1 text-orange-600 font-bold hover:underline">{isRegistering ? 'Login di sini' : 'Daftar di sini'}</button></p></div>
                 </div>
             </div>
