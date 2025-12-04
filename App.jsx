@@ -71,7 +71,7 @@ export default function App() {
 
   // Reader Settings
   const [fontSize, setFontSize] = useState(16);
-  const [isSynopsisExpanded, setIsSynopsisExpanded] = useState(false); // BARU: State untuk expand sinopsis
+  const [isSynopsisExpanded, setIsSynopsisExpanded] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [notification, setNotification] = useState('');
@@ -85,8 +85,20 @@ export default function App() {
   const [imageModalMode, setImageModalMode] = useState('content'); 
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
-  // Fix Scroll & History
+  // --- HELPERS & UTILS (DIPINDAHKAN KE ATAS) ---
+  const showNotification = (m) => { setNotification(m); setTimeout(() => setNotification(''), 3000); };
+  
+  const resetForm = () => { 
+      setTitle(''); setAuthorName(''); setCoverUrl(''); setSynopsis(''); setGenre([]); 
+      setChapters([]); setActiveChapterIndex(null); setEditingId(null); setIsSynopsisExpanded(false); 
+      setChapterTitle(''); setChapterContent(''); 
+  };
+  
+  const pushHistory = () => window.history.pushState(null, "", window.location.href);
+
+  // --- EFFECTS ---
   useEffect(() => { window.scrollTo(0, 0); }, [view, activeChapterIndex]);
+  
   useEffect(() => {
     const handlePopState = () => {
       if (activeChapterIndex !== null) setActiveChapterIndex(null);
@@ -95,9 +107,7 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [view, activeChapterIndex]);
-  const pushHistory = () => window.history.pushState(null, "", window.location.href);
 
-  // --- AUTH INIT ---
   useEffect(() => {
     const initAuth = async () => {
       if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -117,6 +127,39 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
+  useEffect(() => {
+    setIsLoadingStories(true);
+    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'stories'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setStories(snapshot.docs.map(doc => ({
+        id: doc.id, ...doc.data(),
+        chapters: doc.data().chapters || [{ title: "Bagian Utama", content: doc.data().content }]
+      })));
+      setIsLoadingStories(false);
+    }, () => setIsLoadingStories(false));
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (view === 'read' && currentStory) {
+        const q = query(
+            collection(db, 'artifacts', appId, 'public', 'data', 'comments'),
+            where('storyId', '==', currentStory.id)
+        );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const loadedComments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            loadedComments.sort((a, b) => {
+                const dateA = a.createdAt ? a.createdAt.seconds : 0;
+                const dateB = b.createdAt ? b.createdAt.seconds : 0;
+                return dateB - dateA;
+            });
+            setComments(loadedComments);
+        });
+        return () => unsubscribe();
+    }
+  }, [view, currentStory]);
+
+  // --- HANDLERS ---
   const handleAuth = async (e) => {
     e.preventDefault(); setAuthError(''); setAuthLoading(true);
     try {
@@ -137,59 +180,17 @@ export default function App() {
   };
   const handleLogout = async () => { await signOut(auth); setView('home'); };
 
-  // --- DATA LISTENER ---
-  useEffect(() => {
-    setIsLoadingStories(true);
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'stories'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setStories(snapshot.docs.map(doc => ({
-        id: doc.id, ...doc.data(),
-        chapters: doc.data().chapters || [{ title: "Bagian Utama", content: doc.data().content }]
-      })));
-      setIsLoadingStories(false);
-    }, () => setIsLoadingStories(false));
-    return () => unsubscribe();
-  }, []);
-
-  // --- KOMENTAR LISTENER ---
-  useEffect(() => {
-    if (view === 'read' && currentStory) {
-        const q = query(
-            collection(db, 'artifacts', appId, 'public', 'data', 'comments'),
-            where('storyId', '==', currentStory.id)
-        );
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const loadedComments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            loadedComments.sort((a, b) => {
-                const dateA = a.createdAt ? a.createdAt.seconds : 0;
-                const dateB = b.createdAt ? b.createdAt.seconds : 0;
-                return dateB - dateA;
-            });
-            setComments(loadedComments);
-        });
-        return () => unsubscribe();
-    }
-  }, [view, currentStory]);
-
-  // --- ACTIONS ---
   const handleSendComment = async () => {
       if (!user) { showNotification("Login dulu untuk komentar!"); return; }
       if (!newComment.trim()) return;
-
       setIsSendingComment(true);
       try {
           await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'comments'), {
-              storyId: currentStory.id,
-              userId: user.uid,
-              userName: userProfile.name || 'Anonim',
-              userPhoto: userProfile.photoUrl || '',
-              content: newComment,
-              createdAt: serverTimestamp()
+              storyId: currentStory.id, userId: user.uid, userName: userProfile.name || 'Anonim',
+              userPhoto: userProfile.photoUrl || '', content: newComment, createdAt: serverTimestamp()
           });
-          setNewComment('');
-          showNotification("Komentar terkirim!");
-      } catch (e) { showNotification("Gagal kirim komentar."); }
-      finally { setIsSendingComment(false); }
+          setNewComment(''); showNotification("Terkirim!");
+      } catch (e) { showNotification("Gagal."); } finally { setIsSendingComment(false); }
   };
 
   const handleSaveProfile = async () => {
@@ -217,17 +218,85 @@ export default function App() {
       const isLiked = story.likes && story.likes.includes(user.uid);
       try {
           if (isLiked) await updateDoc(storyRef, { likes: arrayRemove(user.uid) });
-          else { await updateDoc(storyRef, { likes: arrayUnion(user.uid) }); showNotification("Kamu menyukai cerita ini ❤️"); }
-      } catch (e) { console.error(e); }
+          else { await updateDoc(storyRef, { likes: arrayUnion(user.uid) }); showNotification("Disukai ❤️"); }
+      } catch (e) {}
+  };
+
+  // --- CRUD HANDLERS ---
+  const handleEditChapter = (index) => {
+    const chapter = chapters[index];
+    if (!chapter) return;
+    setActiveChapterIndex(index);
+    setChapterTitle(chapter.title || '');
+    setChapterContent(chapter.content || '');
+    setWriteMode('edit'); 
+  };
+
+  const handleDeleteChapter = (index) => {
+    setConfirmModal({
+      isOpen: true, title: 'Hapus Bab', message: 'Hapus bab ini?',
+      onConfirm: () => {
+        const updatedChapters = chapters.filter((_, i) => i !== index);
+        setChapters(updatedChapters);
+        if (activeChapterIndex === index) { setActiveChapterIndex(null); setChapterTitle(''); setChapterContent(''); }
+        setConfirmModal({...confirmModal, isOpen:false});
+      }
+    });
+  };
+
+  const handleSaveChapterToLocal = () => {
+    if (!chapterTitle || !chapterContent) { showNotification("Judul & Isi wajib diisi!"); return; }
+    const newChapterData = { title: chapterTitle, content: chapterContent };
+    const updatedChapters = [...chapters];
+    if (activeChapterIndex === 'new') updatedChapters.push(newChapterData);
+    else if (typeof activeChapterIndex === 'number') updatedChapters[activeChapterIndex] = newChapterData;
+    setChapters(updatedChapters);
+    setChapterTitle(''); setChapterContent(''); setWriteMode('edit'); setActiveChapterIndex(null); 
+  };
+
+  const handleRemoveCover = (e) => {
+    if(e) e.stopPropagation();
+    setConfirmModal({
+      isOpen: true, title: 'Hapus Sampul', message: 'Hapus gambar sampul ini?',
+      onConfirm: () => { setCoverUrl(''); setConfirmModal({...confirmModal, isOpen:false}); }
+    });
+  };
+
+  const openImageModal = (mode) => {
+    setImageModalMode(mode);
+    let initialUrl = '';
+    if (mode === 'cover') initialUrl = coverUrl;
+    else if (mode === 'profile') initialUrl = userProfile.photoUrl;
+    setTempImageUrl(initialUrl); 
+    setShowImageModal(true);
+  };
+
+  const handleUpload = async () => { /* Logic upload file jika ada */ }; 
+
+  const handleSaveImageLink = () => {
+    if (!tempImageUrl) { setShowImageModal(false); return; }
+    let finalUrl = tempImageUrl;
+    if (tempImageUrl.includes('drive.google.com') || tempImageUrl.includes('docs.google.com')) {
+      const idMatch = tempImageUrl.match(/[-\w]{25,}/);
+      if (idMatch) {
+        finalUrl = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1200`;
+        showNotification("Link Drive dikonversi!");
+      }
+    }
+    if (imageModalMode === 'cover') setCoverUrl(finalUrl);
+    else if (imageModalMode === 'profile') setUserProfile(p => ({ ...p, photoUrl: finalUrl }));
+    else setChapterContent(p => p + `\n\n[GAMBAR: ${finalUrl}]\n\n`);
+    setShowImageModal(false); setTempImageUrl('');
   };
 
   const closeConfirmModal = () => setConfirmModal({ ...confirmModal, isOpen: false });
+  
   const handleDeleteStory = (e, id) => {
     e.stopPropagation();
     setConfirmModal({ isOpen: true, title: 'Hapus Novel', message: 'Hapus permanen?', onConfirm: async () => {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stories', id));
         if (view === 'read') setView('home');
-        closeConfirmModal();
+        setConfirmModal({...confirmModal, isOpen:false});
     }});
   };
 
@@ -243,29 +312,8 @@ export default function App() {
     } catch { showNotification("Gagal."); } finally { setIsSaving(false); }
   };
 
-  const handleUpload = async () => {
-    if (imageFile) {
-        setIsUploading(true);
-        try {
-            const snap = await uploadBytes(ref(storage, `images/${Date.now()}_${imageFile.name}`), imageFile);
-            const url = await getDownloadURL(snap.ref);
-            applyImage(url);
-        } catch { showNotification("Gagal upload."); } finally { setIsUploading(false); }
-    } else if (tempImageUrl) applyImage(tempImageUrl);
-  };
-
-  const applyImage = (url) => {
-    if (imageModalMode === 'cover') setCoverUrl(url);
-    else if (imageModalMode === 'profile') setUserProfile(p => ({ ...p, photoUrl: url }));
-    else setChapterContent(p => p + `\n\n[GAMBAR: ${url}]\n\n`);
-    setShowImageModal(false); setTempImageUrl(''); setImageFile(null);
-  };
-
-  // Helpers
-  const showNotification = (m) => { setNotification(m); setTimeout(() => setNotification(''), 3000); };
-  const resetForm = () => { setTitle(''); setAuthorName(''); setCoverUrl(''); setSynopsis(''); setGenre([]); setChapters([]); setActiveChapterIndex(null); setEditingId(null); setIsSynopsisExpanded(false); };
   const toggleGenre = (g) => setGenre(p => p.includes(g) ? p.filter(i => i !== g) : (p.length >= 4 ? p : [...p, g]));
-  
+
   const filteredStories = stories.filter(s => {
     const matchSearch = s.title.toLowerCase().includes(searchQuery.toLowerCase()) || (s.authorName && s.authorName.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchGenre = selectedGenreFilter === 'Semua' || (Array.isArray(s.genre) ? s.genre.includes(selectedGenreFilter) : s.genre === selectedGenreFilter);
@@ -301,7 +349,6 @@ export default function App() {
 
       {notification && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-4 py-3 rounded-full shadow-lg z-[60] text-sm animate-bounce">{notification}</div>}
 
-      {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6">
         {view === 'home' && (
           <div className="animate-fade-in">
@@ -327,7 +374,6 @@ export default function App() {
                          <img src={story.coverUrl} className="w-full h-full object-contain" onError={(e) => {e.target.src = 'https://placehold.co/400x600?text=No+Cover'}} />
                          <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">{story.chapters.length} Bab</div>
                          <div className="absolute top-2 left-2 flex flex-wrap gap-1 max-w-[90%]">{ (Array.isArray(story.genre) ? story.genre : [story.genre]).filter(Boolean).slice(0, 4).map((g,i) => <span key={i} className="bg-orange-500/90 text-white text-[8px] px-1 rounded">{g}</span>)}</div>
-                         {/* Like Indicator */}
                          <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm cursor-pointer hover:bg-black/60" onClick={(e) => handleToggleLike(e, story)}>
                              <Heart size={10} className={isLiked ? "fill-red-500 text-red-500" : "text-white"} /> <span>{story.likes ? story.likes.length : 0}</span>
                          </div>
@@ -341,7 +387,6 @@ export default function App() {
           </div>
         )}
 
-        {/* View Read dengan Komentar */}
         {view === 'read' && currentStory && (
           <div className="animate-fade-in pb-20">
             <div className="flex justify-between items-center mb-4 sticky top-16 z-30 bg-white/90 backdrop-blur p-2 rounded-lg shadow-sm border border-gray-100">
@@ -365,62 +410,36 @@ export default function App() {
                           <h1 className="text-xl font-bold leading-tight mb-1">{currentStory.title}</h1>
                           <div className="text-xs text-gray-500 mb-2 flex items-center gap-2"><User size={12}/> {currentStory.authorName}</div>
                           <div className="flex flex-wrap gap-1 mb-2">{(Array.isArray(currentStory.genre) ? currentStory.genre : [currentStory.genre]).map(g=><span key={g} className="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-600">{g}</span>)}</div>
-                          
-                          {/* SINOPSIS DENGAN TOGGLE (BARU) */}
                           <div className="relative">
-                            <p className={`text-sm text-gray-700 leading-relaxed ${isSynopsisExpanded ? '' : 'line-clamp-3'}`}>
-                                {currentStory.synopsis}
-                            </p>
+                            <p className={`text-sm text-gray-700 leading-relaxed ${isSynopsisExpanded ? '' : 'line-clamp-3'}`}>{currentStory.synopsis}</p>
                             {currentStory.synopsis && currentStory.synopsis.length > 150 && (
-                                <button 
-                                    onClick={() => setIsSynopsisExpanded(!isSynopsisExpanded)} 
-                                    className="flex items-center gap-1 text-xs text-orange-600 font-medium mt-1 hover:underline"
-                                >
+                                <button onClick={() => setIsSynopsisExpanded(!isSynopsisExpanded)} className="flex items-center gap-1 text-xs text-orange-600 font-medium mt-1 hover:underline">
                                     {isSynopsisExpanded ? <><ChevronUp size={12}/> Tutup</> : <><ChevronDown size={12}/> Baca Selengkapnya</>}
                                 </button>
                             )}
                           </div>
-
                       </div>
                   </div>
                   <div className="bg-white border rounded-xl overflow-hidden">
                       <div className="bg-gray-50 px-4 py-2 border-b text-sm font-bold text-gray-600">Daftar Bab ({currentStory.chapters.length})</div>
                       <div className="divide-y">{currentStory.chapters.map((c,i) => <div key={i} onClick={()=>{pushHistory(); setActiveChapterIndex(i)}} className="p-3 hover:bg-orange-50 cursor-pointer flex justify-between items-center text-sm"><span><span className="font-bold text-orange-600 mr-2">BAB {i+1}</span> {c.title}</span><ChevronRight size={16} className="text-gray-300"/></div>)}</div>
                   </div>
-                  
-                  {/* KOLOM KOMENTAR */}
                   <div className="mt-8">
                       <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><MessageCircle size={18}/> Komentar Pembaca</h3>
-                      
-                      {/* Form Komentar */}
                       <div className="flex gap-2 mb-6">
                           {user ? (
                               <>
-                                <input 
-                                    type="text" 
-                                    value={newComment} 
-                                    onChange={(e)=>setNewComment(e.target.value)} 
-                                    placeholder="Tulis tanggapanmu..." 
-                                    className="flex-1 border rounded-full px-4 py-2 text-sm focus:border-orange-500 outline-none"
-                                    onKeyPress={(e) => e.key === 'Enter' && handleSendComment()}
-                                />
+                                <input type="text" value={newComment} onChange={(e)=>setNewComment(e.target.value)} placeholder="Tulis tanggapanmu..." className="flex-1 border rounded-full px-4 py-2 text-sm focus:border-orange-500 outline-none" onKeyPress={(e) => e.key === 'Enter' && handleSendComment()} />
                                 <button onClick={handleSendComment} disabled={isSendingComment || !newComment.trim()} className="bg-orange-600 text-white p-2 rounded-full hover:bg-orange-700 disabled:opacity-50"><Send size={18}/></button>
                               </>
-                          ) : (
-                              <div className="w-full text-center p-3 bg-gray-50 rounded-lg text-sm text-gray-500 cursor-pointer hover:bg-gray-100" onClick={()=>setView('login')}>Login untuk berkomentar</div>
-                          )}
+                          ) : (<div className="w-full text-center p-3 bg-gray-50 rounded-lg text-sm text-gray-500 cursor-pointer hover:bg-gray-100" onClick={()=>setView('login')}>Login untuk berkomentar</div>)}
                       </div>
-
-                      {/* List Komentar */}
                       <div className="space-y-4">
                           {comments.length === 0 ? <p className="text-center text-gray-400 text-xs italic">Belum ada komentar. Jadilah yang pertama!</p> : comments.map(c => (
                               <div key={c.id} className="flex gap-3">
                                   <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden shrink-0"><img src={c.userPhoto || 'https://placehold.co/100'} className="w-full h-full object-cover"/></div>
                                   <div className="bg-gray-50 p-3 rounded-lg rounded-tl-none flex-1">
-                                      <div className="flex justify-between items-start mb-1">
-                                          <span className="text-xs font-bold text-gray-700">{c.userName}</span>
-                                          <span className="text-[10px] text-gray-400">{c.createdAt ? new Date(c.createdAt.seconds * 1000).toLocaleDateString() : 'Baru saja'}</span>
-                                      </div>
+                                      <div className="flex justify-between items-start mb-1"><span className="text-xs font-bold text-gray-700">{c.userName}</span><span className="text-[10px] text-gray-400">{c.createdAt ? new Date(c.createdAt.seconds * 1000).toLocaleDateString() : 'Baru saja'}</span></div>
                                       <p className="text-sm text-gray-600">{c.content}</p>
                                   </div>
                               </div>
@@ -441,145 +460,113 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: LOGIN/REGISTER - DIPERBAIKI SESUAI SCREENSHOT LAMA */}
         {view === 'login' && (
             <div className="flex items-center justify-center py-10 animate-fade-in">
                 <div className="bg-white w-full max-w-md p-8 rounded-2xl shadow-xl border border-gray-100">
-                    <div className="text-center mb-8">
-                        <BookOpen className="text-orange-600 mx-auto mb-3" size={40} />
-                        <h2 className="text-2xl font-bold text-gray-800">{isRegistering ? 'Buat Akun Baru' : 'Masuk ke Pustaka'}</h2>
-                        <p className="text-gray-500 text-sm mt-2">Bergabunglah untuk mulai berkarya.</p>
-                    </div>
-
-                    <form onSubmit={handleAuth} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                            <div className="relative">
-                                <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
-                                <input 
-                                    type="email" 
-                                    required
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" 
-                                    placeholder="contoh@email.com"
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                            <div className="relative">
-                                <Lock className="absolute left-3 top-3 text-gray-400" size={18} />
-                                <input 
-                                    type="password" 
-                                    required
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" 
-                                    placeholder="******"
-                                />
-                            </div>
-                        </div>
-
-                        {isRegistering && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Kode Pendaftaran (Wajib)</label>
-                                <div className="relative">
-                                    <Key className="absolute left-3 top-3 text-gray-400" size={18} />
-                                    <input 
-                                        type="text" 
-                                        required
-                                        value={regCode}
-                                        onChange={(e) => setRegCode(e.target.value)}
-                                        className="w-full pl-10 p-2.5 border-2 border-orange-100 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-orange-50" 
-                                        placeholder="Kode Rahasia dari Admin"
-                                    />
-                                </div>
-                                <p className="text-[10px] text-gray-400 mt-1 italic">*Hanya yang punya kode ini yang bisa daftar.</p>
-                            </div>
-                        )}
-
-                        {authError && (
-                            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2">
-                                <AlertCircle size={16} /> {authError}
-                            </div>
-                        )}
-
-                        <button 
-                            type="submit" 
-                            disabled={authLoading}
-                            className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-bold hover:bg-orange-700 transition shadow-lg disabled:opacity-50"
-                        >
-                            {authLoading ? 'Memproses...' : (isRegistering ? 'Daftar Akun Baru' : 'Masuk Sekarang')}
-                        </button>
-                    </form>
-
-                    <div className="mt-6 text-center text-sm">
-                        <p className="text-gray-600">
-                            {isRegistering ? 'Sudah punya akun?' : 'Belum punya akun?'}
-                            <button 
-                                onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }}
-                                className="ml-1 text-orange-600 font-bold hover:underline"
-                            >
-                                {isRegistering ? 'Login di sini' : 'Daftar di sini'}
-                            </button>
-                        </p>
-                    </div>
+                    <div className="text-center mb-8"><BookOpen className="text-orange-600 mx-auto mb-3" size={40} /><h2 className="text-2xl font-bold text-gray-800">{isRegistering ? 'Buat Akun Baru' : 'Masuk ke Pustaka'}</h2><p className="text-gray-500 text-sm mt-2">Bergabunglah untuk mulai berkarya.</p></div>
+                    <form onSubmit={handleAuth} className="space-y-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Email</label><div className="relative"><Mail className="absolute left-3 top-3 text-gray-400" size={18} /><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="contoh@email.com" /></div></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Password</label><div className="relative"><Lock className="absolute left-3 top-3 text-gray-400" size={18} /><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="******" /></div></div>
+                    {isRegistering && (<div><label className="block text-sm font-medium text-gray-700 mb-1">Kode Pendaftaran (Wajib)</label><div className="relative"><Key className="absolute left-3 top-3 text-gray-400" size={18} /><input type="text" required value={regCode} onChange={(e) => setRegCode(e.target.value)} className="w-full pl-10 p-2.5 border-2 border-orange-100 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-orange-50" placeholder="Kode Rahasia dari Admin" /></div><p className="text-[10px] text-gray-400 mt-1 italic">*Hanya yang punya kode ini yang bisa daftar.</p></div>)}
+                    {authError && (<div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2"><AlertCircle size={16} /> {authError}</div>)}<button type="submit" disabled={authLoading} className="w-full bg-orange-600 text-white py-2.5 rounded-lg font-bold hover:bg-orange-700 transition shadow-lg disabled:opacity-50">{authLoading ? 'Memproses...' : (isRegistering ? 'Daftar Akun Baru' : 'Masuk Sekarang')}</button></form>
+                    <div className="mt-6 text-center text-sm"><p className="text-gray-600">{isRegistering ? 'Sudah punya akun?' : 'Belum punya akun?'}<button onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }} className="ml-1 text-orange-600 font-bold hover:underline">{isRegistering ? 'Login di sini' : 'Daftar di sini'}</button></p></div>
                 </div>
             </div>
         )}
 
         {view === 'profile' && user && (
-            <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow text-center">
-                <div className="w-20 h-20 bg-gray-200 rounded-full mx-auto mb-3 overflow-hidden cursor-pointer" onClick={()=>openImageModal('profile')}><img src={userProfile.photoUrl||'https://placehold.co/100'} className="w-full h-full object-cover"/></div>
-                <input value={userProfile.name} onChange={e=>setUserProfile({...userProfile, name:e.target.value})} className="text-center font-bold border-b focus:border-orange-500 outline-none w-full mb-4" placeholder="Nama Pena"/>
-                <button onClick={handleSaveProfile} disabled={isSaving} className="w-full bg-gray-800 text-white py-2 rounded text-sm font-bold mb-2">Simpan Profil</button>
-                <button onClick={handleLogout} className="w-full border text-red-500 py-2 rounded text-sm">Keluar</button>
+            <div className="animate-fade-in max-w-4xl mx-auto">
+                <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2 text-gray-800"><User className="text-orange-600" /> Profil Penulis</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center h-fit">
+                        <div className="relative w-24 h-24 mx-auto mb-4"><div className="w-full h-full rounded-full overflow-hidden border-4 border-orange-50 bg-gray-100">{userProfile.photoUrl ? (<img src={userProfile.photoUrl} className="w-full h-full object-cover" alt="Avatar" />) : (<User className="w-full h-full p-4 text-gray-300" />)}</div><button onClick={() => openImageModal('profile')} className="absolute bottom-0 right-0 bg-orange-600 text-white p-1.5 rounded-full hover:bg-orange-700 shadow-sm" title="Ganti Foto"><Edit size={12} /></button></div>
+                        <div className="mb-4"><label className="text-xs font-bold text-gray-400 uppercase tracking-wide">Nama Pena</label><input type="text" value={userProfile.name} onChange={(e) => setUserProfile({...userProfile, name: e.target.value})} className="w-full text-center font-bold text-gray-800 border-b border-gray-200 focus:border-orange-500 outline-none pb-1 mt-1" placeholder="Isi Nama Kamu" /></div>
+                        <div className="space-y-2"><button onClick={handleSaveProfile} disabled={isSaving} className="w-full bg-gray-900 text-white py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition flex items-center justify-center gap-2"><Save size={14} /> Simpan Profil</button><button onClick={handleLogout} className="w-full border border-red-200 text-red-600 py-2 rounded-lg text-sm font-medium hover:bg-red-50 transition flex items-center justify-center gap-2"><LogOut size={14} /> Keluar</button></div>
+                    </div>
+                    <div className="md:col-span-2 space-y-4">
+                        <div className="flex justify-between items-center"><h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm sm:text-base"><BookOpen size={18} /> Cerita Saya ({stories.filter(s => s.authorId === user?.uid).length})</h3><button onClick={startWritingNew} className="text-sm text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1"><PlusCircle size={14} /> Buat Baru</button></div>
+                        <div className="space-y-3">{stories.filter(s => s.authorId === user?.uid).length === 0 ? (<div className="text-center py-10 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200"><p className="text-gray-400 text-sm">Kamu belum menulis cerita apapun.</p></div>) : (stories.filter(s => s.authorId === user?.uid).map(story => (<div key={story.id} className="bg-white p-3 rounded-lg border border-gray-100 flex gap-4 hover:shadow-md transition group"><div className="w-16 h-24 shrink-0 bg-gray-100 rounded overflow-hidden"><img src={story.coverUrl} className="w-full h-full object-contain" onError={(e) => {e.target.src = 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover'}} /></div><div className="flex-1 min-w-0 py-1"><h4 className="font-bold text-gray-800 truncate text-sm sm:text-base">{story.title}</h4><p className="text-xs text-gray-500 mb-3">{story.chapters.length} Bab</p><div className="flex gap-2"><button onClick={() => startEditing(story)} className="text-xs bg-orange-50 text-orange-700 px-3 py-1.5 rounded-full hover:bg-orange-100 font-medium">Edit</button><button onClick={(e) => handleDeleteStory(e, story.id)} className="text-xs bg-red-50 text-red-700 px-3 py-1.5 rounded-full hover:bg-red-100 font-medium">Hapus</button></div></div></div>)))}</div>
+                    </div>
+                </div>
             </div>
         )}
 
-        {view === 'write' && ( /* Kode Write sama dengan sebelumnya, hanya disingkat agar muat */ 
-            <div className="max-w-3xl mx-auto">
-                <h2 className="font-bold text-xl mb-4 flex gap-2"><PenTool/> {editingId?'Edit':'Tulis'}</h2>
-                {activeChapterIndex===null ? (
-                    <div className="bg-white p-4 rounded shadow space-y-3">
-                        <input value={title} onChange={e=>setTitle(e.target.value)} className="w-full p-2 border rounded font-bold" placeholder="Judul"/>
-                        <div className="flex gap-2">
-                             <select 
-                                value="" 
-                                onChange={e => {
-                                    const val = e.target.value;
-                                    setGenre(prev => {
-                                        const current = Array.isArray(prev) ? prev : [];
-                                        if (current.includes(val)) return current;
-                                        if (current.length >= 4) { showNotification("Maksimal 4 genre!"); return current; }
-                                        return [...current, val];
-                                    });
-                                }} 
-                                className="p-2 border rounded text-sm w-1/2"
-                             >
-                                <option value="" disabled>+ Tambah Genre</option>
-                                {GENRES.filter(g=>g!=='Semua').map(g=><option key={g} value={g} disabled={genre.includes(g)}>{g}</option>)}
-                             </select>
-                             <div className="flex flex-wrap gap-1 items-center">{Array.isArray(genre)&&genre.map(g=><span key={g} onClick={()=>setGenre(prev=>prev.filter(i=>i!==g))} className="text-[10px] bg-orange-100 px-2 rounded cursor-pointer hover:bg-red-100">{g} &times;</span>)}</div>
+        {view === 'write' && (
+          <div className="max-w-3xl mx-auto animate-fade-in">
+            <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2 text-gray-800"><PenTool className="text-orange-600" /> {editingId ? 'Edit Novel' : 'Novel Baru'}</h2>
+            {activeChapterIndex === null && (
+              <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 space-y-4 mb-6">
+                {/* HEADER NAVIGASI BARU: TOMBOL KEMBALI */}
+                <div className="flex justify-between items-center border-b pb-2 mb-2">
+                    <h3 className="font-bold text-gray-700 text-sm sm:text-base">Informasi Novel</h3>
+                    <button onClick={() => { pushHistory(); resetForm(); setView('home'); }} className="text-xs sm:text-sm text-gray-500 hover:text-orange-600 flex items-center gap-1"><ArrowLeft size={14}/> Batal</button>
+                </div>
+
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Judul Novel</label><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Judul Novel..." /></div>
+                
+                {/* PILIHAN GENRE (MULTI-SELECT) */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Genre (Pilih Maksimal 4)</label>
+                    <div className="flex flex-wrap gap-2">
+                        {GENRES.filter(g => g !== "Semua").map(g => (
+                            <button
+                                key={g}
+                                onClick={() => toggleGenre(g)}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition border ${
+                                    genre.includes(g) 
+                                    ? 'bg-orange-100 text-orange-600 border-orange-200' 
+                                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                            >
+                                {g}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Penulis</label><input type="text" value={authorName} onChange={(e) => setAuthorName(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Otomatis dari Profil..." /></div>
+                <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="relative group shrink-0 w-fit mx-auto sm:mx-0">
+                        <div onClick={() => openImageModal('cover')} className="w-32 h-48 bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-orange-500 overflow-hidden rounded-lg">
+                            {coverUrl ? <img src={coverUrl} className="w-full h-full object-cover" /> : <div className="text-center"><UploadCloud size={24} className="mx-auto text-gray-400"/><span className="text-[10px] text-gray-400">Sampul</span></div>}
                         </div>
-                        <div className="flex gap-2"><div onClick={()=>openImageModal('cover')} className="w-20 h-28 bg-gray-100 border cursor-pointer flex items-center justify-center">{coverUrl?<img src={coverUrl} className="w-full h-full object-cover"/>:<UploadCloud/>}</div><textarea value={synopsis} onChange={e=>setSynopsis(e.target.value)} className="flex-1 p-2 border rounded" placeholder="Sinopsis"/></div>
-                        <div className="border-t pt-2 mt-2"><div className="font-bold text-sm mb-2">Daftar Bab ({chapters.length})</div><button onClick={()=>setActiveChapterIndex('new')} className="text-xs bg-orange-100 text-orange-600 px-3 py-1 rounded mb-2">+ Tambah Bab</button>{chapters.map((c,i)=><div key={i} className="flex justify-between p-2 border text-sm"><span>{c.title}</span><div className="flex gap-2"><button onClick={()=>{setActiveChapterIndex(i); setChapterTitle(c.title); setChapterContent(c.content)}} className="text-blue-500"><Edit size={14}/></button><button onClick={()=>handleDeleteChapter(i)} className="text-red-500"><Trash2 size={14}/></button></div></div>)}</div>
-                        <button onClick={handlePublish} disabled={isSaving} className="w-full bg-orange-600 text-white py-2 rounded font-bold mt-4">Simpan / Terbit</button>
+                        {coverUrl && (<button onClick={handleRemoveCover} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 z-10"><X size={14} /></button>)}
                     </div>
-                ) : (
-                    <div className="bg-white p-4 rounded shadow h-[70vh] flex flex-col">
-                        <input value={chapterTitle} onChange={e=>setChapterTitle(e.target.value)} className="w-full p-2 border rounded mb-2 font-bold" placeholder="Judul Bab"/>
-                        <div className="flex gap-2 mb-2"><button onClick={()=>openImageModal('content')} className="text-xs bg-gray-100 px-2 py-1 rounded flex gap-1"><ImageIcon size={12}/> Gambar</button></div>
-                        <textarea value={chapterContent} onChange={e=>setChapterContent(e.target.value)} className="flex-1 w-full p-2 border rounded resize-none" placeholder="Isi cerita..."/>
-                        <div className="flex gap-2 mt-2 justify-end"><button onClick={()=>setActiveChapterIndex(null)} className="px-4 py-1 border rounded">Batal</button><button onClick={handleSaveChapterToLocal} className="px-4 py-1 bg-green-600 text-white rounded">Simpan Bab</button></div>
+                    <div className="flex-1"><label className="block text-sm font-medium text-gray-700 mb-1">Sinopsis</label><textarea value={synopsis} onChange={(e) => setSynopsis(e.target.value)} className="w-full p-3 border rounded-lg h-32 sm:h-48 text-sm resize-none focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Sinopsis..." /></div>
+                </div>
+                <div className="border-t pt-4">
+                    <button onClick={() => setActiveChapterIndex('new')} className="w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-200 flex items-center justify-center gap-2"><List size={18}/> Kelola Bab & Terbitkan</button>
+                </div>
+              </div>
+            )}
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
+              {activeChapterIndex === null ? (
+                <div>
+                  <div className="flex justify-between items-center mb-4 border-b pb-2"><h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm sm:text-base"><List size={18}/> Daftar Bab ({chapters.length})</h3><button onClick={() => setActiveChapterIndex('new')} className="text-xs sm:text-sm bg-orange-100 text-orange-600 px-3 py-1.5 rounded-full hover:bg-orange-200 transition flex items-center gap-1 font-medium"><PlusCircle size={14} /> Tambah</button></div>
+                  {chapters.length === 0 ? (<div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg bg-gray-50"><p>Belum ada bab.</p><p className="text-sm">Klik "Tambah" untuk mulai.</p></div>) : (<div className="space-y-2">{chapters.map((chap, idx) => (<div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition group"><div className="flex items-center gap-3"><span className="w-6 h-6 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span><span className="font-medium text-gray-700 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs">{chap.title}</span></div><div className="flex gap-2"><button onClick={() => handleEditChapter(idx)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={() => handleDeleteChapter(idx)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></div>))}</div>)}
+                  <div className="mt-8 flex justify-end gap-3 pt-4 border-t"><button onClick={() => { resetForm(); setView('home'); }} className="px-4 sm:px-6 py-2 rounded-full border text-gray-600 hover:bg-gray-50 text-sm sm:text-base">Batal</button><button onClick={handlePublish} disabled={isSaving} className={`px-4 sm:px-6 py-2 rounded-full bg-orange-600 text-white font-semibold hover:bg-orange-700 flex items-center gap-2 text-sm sm:text-base ${isSaving ? 'opacity-50' : ''}`}><Save size={18} /> {editingId ? 'Update' : 'Terbitkan'}</button></div>
+                </div>
+              ) : (
+                <div className="animate-fade-in">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-gray-800 text-sm sm:text-base">{activeChapterIndex === 'new' ? 'Menulis Bab Baru' : `Edit Bab`}</h3>
+                      {/* HEADER NAVIGASI BARU: TOMBOL KEMBALI (DARI CHAPTER KE LIST) */}
+                      <button onClick={() => setActiveChapterIndex(null)} className="text-xs sm:text-sm text-gray-500 hover:text-orange-600 flex items-center gap-1"><ArrowLeft size={14}/> Kembali ke Daftar</button>
+                  </div>
+                  <div className="space-y-4">
+                    <input type="text" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-lg focus:border-orange-500 outline-none" placeholder="Judul Bab..." />
+                    <div className="flex gap-2 border-b border-gray-200 mb-0"><button onClick={() => setWriteMode('edit')} className={`px-3 sm:px-4 py-2 flex items-center gap-2 text-xs sm:text-sm font-medium rounded-t-lg transition ${writeMode === 'edit' ? 'bg-orange-50 text-orange-600 border-b-2 border-orange-500' : 'text-gray-500 hover:bg-gray-50'}`}><FileText size={16} /> Edit</button><button onClick={() => setWriteMode('preview')} className={`px-3 sm:px-4 py-2 flex items-center gap-2 text-xs sm:text-sm font-medium rounded-t-lg transition ${writeMode === 'preview' ? 'bg-orange-50 text-orange-600 border-b-2 border-orange-500' : 'text-gray-500 hover:bg-gray-50'}`}><Eye size={16} /> Preview</button></div>
+                    <div className="border border-gray-300 rounded-b-lg rounded-tr-lg overflow-hidden bg-white h-[50vh] sm:h-[60vh] flex flex-col">
+                      {writeMode === 'edit' ? (<><div className="bg-gray-50 border-b px-3 py-2 flex gap-2"><button onClick={() => openImageModal('content')} className="flex items-center gap-1 text-xs bg-white border px-3 py-1.5 rounded hover:bg-gray-100 text-gray-700"><ImageIcon size={14} /> Gambar</button></div><textarea value={chapterContent} onChange={(e) => setChapterContent(e.target.value)} className="w-full p-4 h-full outline-none resize-none font-serif text-base sm:text-lg leading-relaxed flex-1" placeholder="Tulis isi bab di sini..." /></>) : (<div className="p-4 sm:p-6 h-full overflow-y-auto bg-white"><div className="font-serif text-gray-800 text-base sm:text-lg md:text-xl leading-relaxed whitespace-pre-wrap">{renderContent(chapterContent || "Belum ada konten.")}</div></div>)}
                     </div>
-                )}
+                    <div className="flex justify-end gap-3"><button onClick={() => {setChapterTitle(''); setChapterContent(''); setActiveChapterIndex(null);}} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Batal</button><button onClick={handleSaveChapterToLocal} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm">Simpan</button></div>
+                  </div>
+                </div>
+              )}
             </div>
+          </div>
         )}
 
         {/* Modal Gambar & Konfirmasi (Tetap sama) */}
-        {showImageModal && <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4"><div className="bg-white p-4 rounded w-full max-w-sm"><h3 className="font-bold mb-2">Upload Gambar</h3><input type="file" onChange={e=>setImageFile(e.target.files[0])} className="text-sm mb-2"/><p className="text-center text-xs my-2">- atau link -</p><input value={tempImageUrl} onChange={e=>setTempImageUrl(e.target.value)} className="w-full border p-1 rounded mb-2 text-sm" placeholder="https://..."/><div className="flex justify-end gap-2"><button onClick={()=>setShowImageModal(false)} className="px-3 py-1 border rounded text-sm">Batal</button><button onClick={handleUpload} disabled={isUploading} className="px-3 py-1 bg-orange-600 text-white rounded text-sm">{isUploading?'...':'Simpan'}</button></div></div></div>}
+        {showImageModal && <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4"><div className="bg-white p-4 rounded w-full max-w-sm"><h3 className="font-bold mb-2">Upload Gambar</h3><div className="border border-gray-200 rounded p-2 mb-3"><p className="text-xs text-gray-500 mb-2">Tempel Link Gambar (Google Drive / Direct URL)</p><input value={tempImageUrl} onChange={e=>setTempImageUrl(e.target.value)} className="w-full border p-2 rounded text-sm" placeholder="https://..." /></div><div className="flex justify-end gap-2"><button onClick={()=>setShowImageModal(false)} className="px-3 py-1 border rounded text-sm">Batal</button><button onClick={handleSaveImageLink} className="px-3 py-1 bg-orange-600 text-white rounded text-sm">Simpan</button></div></div></div>}
         {confirmModal.isOpen && <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4"><div className="bg-white p-4 rounded text-center"><h3 className="font-bold mb-1">{confirmModal.title}</h3><p className="text-sm text-gray-500 mb-4">{confirmModal.message}</p><div className="flex gap-2 justify-center"><button onClick={closeConfirmModal} className="px-4 py-1 border rounded">Batal</button><button onClick={confirmModal.onConfirm} className="px-4 py-1 bg-red-600 text-white rounded">Ya</button></div></div></div>}
       </main>
     </div>
