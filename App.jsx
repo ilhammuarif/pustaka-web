@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, PenTool, Home, Image as ImageIcon, Save, ArrowLeft, PlusCircle, User, X, Info, UploadCloud, Edit, Trash2, List, ChevronRight, ChevronLeft, Link as LinkIcon, AlertCircle, Eye, FileText, AlertTriangle, Settings, LogOut, Lock, Mail, Key, Loader2 } from 'lucide-react';
+import { BookOpen, PenTool, Home, Image as ImageIcon, Save, ArrowLeft, PlusCircle, User, X, Info, UploadCloud, Edit, Trash2, List, ChevronRight, ChevronLeft, Link as LinkIcon, AlertCircle, Eye, FileText, AlertTriangle, Settings, LogOut, Lock, Mail, Key, Loader2, Search, Filter } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithCustomToken } from "firebase/auth";
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, getDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// --- 1. KONFIGURASI FIREBASE (Milik Ilham - WebNovelKuu) ---
+// --- 1. KONFIGURASI FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBnc9NMHH4bQdfBm4E1EIKmCbhCvX23yEA",
   authDomain: "webnovelkuu.firebaseapp.com",
@@ -15,22 +15,22 @@ const firebaseConfig = {
   appId: "1:758683527144:web:069e6ef93b87158ef9265d"
 };
 
-// --- KODE RAHASIA PENDAFTARAN ---
 const SECRET_CODE = "VIP-ILHAM"; 
 
-// Inisialisasi Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
-
 const appId = 'pustaka-utama'; 
+
+// DAFTAR GENRE (KATEGORI)
+const GENRES = ["Semua", "Aksi", "Petualangan", "Romantis", "Horor", "Fantasi", "Sci-Fi", "Drama", "Komedi", "Misteri"];
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState({ name: '', photoUrl: '' });
   
-  // State Auth
+  // Auth
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [regCode, setRegCode] = useState('');
@@ -38,23 +38,26 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
-  // State App
+  // App State
   const [view, setView] = useState('home'); 
   const [stories, setStories] = useState([]);
   const [currentStory, setCurrentStory] = useState(null);
   const [isLoadingStories, setIsLoadingStories] = useState(true);
   
-  // State Info Novel
+  // SEARCH & FILTER STATE (BARU)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGenreFilter, setSelectedGenreFilter] = useState('Semua');
+
+  // Info Novel Form
   const [title, setTitle] = useState('');
   const [authorName, setAuthorName] = useState(''); 
   const [coverUrl, setCoverUrl] = useState('');
   const [synopsis, setSynopsis] = useState('');
+  const [genre, setGenre] = useState('Aksi'); // BARU: Input Genre saat nulis
   
-  // State Chapter
+  // Chapter Form
   const [chapters, setChapters] = useState([]); 
   const [activeChapterIndex, setActiveChapterIndex] = useState(null); 
-  
-  // State Editor
   const [chapterTitle, setChapterTitle] = useState('');
   const [chapterContent, setChapterContent] = useState('');
   const [writeMode, setWriteMode] = useState('edit');
@@ -63,13 +66,12 @@ export default function App() {
   const [notification, setNotification] = useState('');
   const [editingId, setEditingId] = useState(null);
 
-  // State Modal
+  // Modal
   const [showImageModal, setShowImageModal] = useState(false);
   const [tempImageUrl, setTempImageUrl] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [imageModalMode, setImageModalMode] = useState('content'); 
-  
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false, title: '', message: '', onConfirm: null
   });
@@ -96,17 +98,13 @@ export default function App() {
       }
     };
     initAuth();
-    
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         const userDocRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'profile', 'info');
         const userDoc = await getDoc(userDocRef);
-        if (userDoc.exists()) {
-          setUserProfile(userDoc.data());
-        } else {
-            setUserProfile({ name: '', photoUrl: '' });
-        }
+        if (userDoc.exists()) setUserProfile(userDoc.data());
+        else setUserProfile({ name: '', photoUrl: '' });
       }
     });
     return () => unsubscribeAuth();
@@ -165,6 +163,7 @@ export default function App() {
     pushHistory(); setEditingId(story.id); setTitle(story.title);
     setAuthorName(story.authorName || userProfile.name || ''); setCoverUrl(story.coverUrl);
     setSynopsis(story.synopsis); setChapters(story.chapters || []);
+    setGenre(story.genre || 'Aksi'); // Load genre
     setActiveChapterIndex(null); setChapterTitle(''); setChapterContent('');
     setView('write');
   };
@@ -235,7 +234,7 @@ export default function App() {
       const storyData = {
         title, authorName: authorName || userProfile.name || 'Anonim', 
         coverUrl: coverUrl || 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover',
-        synopsis, chapters, authorId: user.uid, updatedAt: serverTimestamp()
+        synopsis, genre, chapters, authorId: user.uid, updatedAt: serverTimestamp()
       };
       if (editingId) {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stories', editingId), storyData);
@@ -281,7 +280,7 @@ export default function App() {
   const showNotification = (msg) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
 
   const resetForm = () => {
-    setTitle(''); setAuthorName(''); setCoverUrl(''); setSynopsis('');
+    setTitle(''); setAuthorName(''); setCoverUrl(''); setSynopsis(''); setGenre('Aksi');
     setChapters([]); setChapterTitle(''); setChapterContent('');
     setActiveChapterIndex(null); setEditingId(null); setWriteMode('edit');
   };
@@ -312,6 +311,14 @@ export default function App() {
     });
   };
 
+  // --- FILTER STORY LOGIC ---
+  const filteredStories = stories.filter(story => {
+    const matchesSearch = story.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          (story.authorName && story.authorName.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesGenre = selectedGenreFilter === 'Semua' || story.genre === selectedGenreFilter || (!story.genre && selectedGenreFilter === 'Semua');
+    return matchesSearch && matchesGenre;
+  });
+
   // --- UI RENDER ---
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 pb-10">
@@ -337,7 +344,6 @@ export default function App() {
 
       {notification && <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 sm:px-6 py-3 rounded-full shadow-lg z-50 animate-bounce text-sm text-center w-[90%] sm:w-auto">{notification}</div>}
 
-      {/* MODAL KONFIRMASI */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center">
@@ -352,7 +358,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL UPLOAD GAMBAR RESPONSIVE */}
       {showImageModal && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-fade-in max-h-[90vh] overflow-y-auto">
@@ -361,7 +366,6 @@ export default function App() {
               <button onClick={() => setShowImageModal(false)}><X size={24} /></button>
             </div>
             <div className="space-y-4">
-                {/* Pilihan File */}
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition cursor-pointer relative">
                     <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files[0])} className="absolute inset-0 opacity-0 cursor-pointer" />
                     <UploadCloud className="mx-auto text-gray-400 mb-2" size={32} />
@@ -369,9 +373,7 @@ export default function App() {
                     <p className="text-xs text-gray-400 mt-1">Maks 1 MB</p>
                 </div>
                 <div className="text-center text-gray-400 text-xs">- ATAU -</div>
-                {/* Pilihan Link */}
                 <div><label className="block text-xs font-medium text-gray-700 mb-1">Link Gambar (URL / Drive)</label><input type="text" value={tempImageUrl} onChange={(e) => setTempImageUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border rounded-lg text-sm" /></div>
-                
                 <button onClick={handleUploadAndSave} disabled={isUploading || (!imageFile && !tempImageUrl)} className="w-full bg-orange-600 text-white py-2 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 flex justify-center items-center gap-2">{isUploading ? <><Loader2 className="animate-spin" size={18}/> Uploading...</> : "Simpan Gambar"}</button>
             </div>
           </div>
@@ -379,7 +381,6 @@ export default function App() {
       )}
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* VIEW: HOME (GRID RESPONSIVE) */}
         {view === 'home' && (
           <div className="animate-fade-in">
              <div className="mb-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
@@ -393,6 +394,30 @@ export default function App() {
                <BookOpen size={180} className="absolute -right-8 -bottom-10 text-white opacity-10 rotate-12 hidden sm:block" />
             </div>
 
+            {/* SEARCH & FILTER BAR (BARU) */}
+            <div className="flex flex-col md:flex-row gap-3 mb-6">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+                    <input 
+                        type="text" 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Cari judul novel atau penulis..." 
+                        className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none shadow-sm" 
+                    />
+                </div>
+                <div className="relative w-full md:w-48">
+                     <Filter className="absolute left-3 top-3 text-gray-400" size={18} />
+                     <select 
+                        value={selectedGenreFilter}
+                        onChange={(e) => setSelectedGenreFilter(e.target.value)}
+                        className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none shadow-sm bg-white appearance-none"
+                     >
+                        {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                     </select>
+                </div>
+            </div>
+
             <h2 className="text-lg sm:text-xl font-bold mb-4 sm:mb-6 pl-3 border-l-4 border-orange-500">Daftar Bacaan Terbaru</h2>
             
             {isLoadingStories ? (
@@ -400,17 +425,16 @@ export default function App() {
                     <Loader2 size={40} className="animate-spin mb-2 text-orange-500" />
                     <p className="text-sm">Sedang mengambil buku dari rak...</p>
                  </div>
-            ) : stories.length === 0 ? (
-                <div className="text-center py-20 text-gray-400"><BookOpen size={48} className="mx-auto mb-4 opacity-20" /><p>Belum ada novel.</p></div>
+            ) : filteredStories.length === 0 ? (
+                <div className="text-center py-20 text-gray-400 bg-gray-50 rounded-xl border border-dashed"><BookOpen size={48} className="mx-auto mb-4 opacity-20" /><p>Tidak ada novel yang ditemukan.</p></div>
             ) : (
-                /* Grid Responsive: 2 kolom di HP, 3 di Tablet, 4-5 di PC */
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-6">
-                  {stories.map(story => (
+                  {filteredStories.map(story => (
                     <div key={story.id} onClick={() => { pushHistory(); setCurrentStory(story); setActiveChapterIndex(null); setView('read'); }} className="group cursor-pointer flex flex-col gap-2 relative">
                       <div className="aspect-[2/3] w-full bg-gray-100 rounded-lg overflow-hidden shadow-sm group-hover:shadow-md transition relative">
-                         {/* Menggunakan object-contain agar gambar tidak terpotong */}
                          <img src={story.coverUrl} alt={story.title} className="w-full h-full object-contain group-hover:scale-105 transition duration-500" onError={(e) => {e.target.src = 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover'}} />
                          <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">{story.chapters.length} Bab</div>
+                         {story.genre && <div className="absolute top-2 left-2 bg-orange-500/90 text-white text-[9px] px-1.5 py-0.5 rounded font-bold">{story.genre}</div>}
                       </div>
                       <div>
                         <h3 className="font-bold text-sm sm:text-base text-gray-800 leading-tight line-clamp-2 group-hover:text-orange-600">{story.title}</h3>
@@ -423,7 +447,7 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: LOGIN RESPONSIVE */}
+        {/* VIEW: LOGIN */}
         {view === 'login' && (
             <div className="flex items-center justify-center py-6 sm:py-10 animate-fade-in">
                 <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100 mx-2">
@@ -440,11 +464,10 @@ export default function App() {
             </div>
         )}
 
-        {/* VIEW: PROFILE RESPONSIVE */}
+        {/* VIEW: PROFILE */}
         {view === 'profile' && user && (
             <div className="animate-fade-in max-w-4xl mx-auto">
                 <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2 text-gray-800"><User className="text-orange-600" /> Profil Penulis</h2>
-                {/* Grid Stack di HP, Side-by-side di PC */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center h-fit">
                         <div className="relative w-24 h-24 mx-auto mb-4"><div className="w-full h-full rounded-full overflow-hidden border-4 border-orange-50 bg-gray-100">{userProfile.photoUrl ? (<img src={userProfile.photoUrl} className="w-full h-full object-cover" alt="Avatar" />) : (<User className="w-full h-full p-4 text-gray-300" />)}</div><button onClick={() => openImageModal('profile')} className="absolute bottom-0 right-0 bg-orange-600 text-white p-1.5 rounded-full hover:bg-orange-700 shadow-sm" title="Ganti Foto"><Edit size={12} /></button></div>
@@ -459,7 +482,7 @@ export default function App() {
             </div>
         )}
 
-        {/* VIEW: WRITE RESPONSIVE */}
+        {/* VIEW: WRITE */}
         {view === 'write' && (
           <div className="max-w-3xl mx-auto animate-fade-in">
             <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2 text-gray-800"><PenTool className="text-orange-600" /> {editingId ? 'Edit Novel' : 'Novel Baru'}</h2>
@@ -467,8 +490,20 @@ export default function App() {
               <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 space-y-4 mb-6">
                 <h3 className="font-bold text-gray-700 border-b pb-2 text-sm sm:text-base">Informasi Novel</h3>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Judul Novel</label><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Judul Novel..." /></div>
+                
+                {/* INPUT GENRE (BARU) */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Genre (Kategori)</label>
+                    <select 
+                        value={genre} 
+                        onChange={(e) => setGenre(e.target.value)}
+                        className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                    >
+                        {GENRES.filter(g => g !== "Semua").map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                </div>
+
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Penulis</label><input type="text" value={authorName} onChange={(e) => setAuthorName(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Otomatis dari Profil..." /></div>
-                {/* Layout Sampul: Stack di HP, Row di PC */}
                 <div className="flex flex-col sm:flex-row gap-4">
                     <div className="relative group shrink-0 w-fit mx-auto sm:mx-0">
                         <div onClick={() => openImageModal('cover')} className="w-32 h-48 bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-orange-500 overflow-hidden rounded-lg">
