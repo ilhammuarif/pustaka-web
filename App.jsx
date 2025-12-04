@@ -74,6 +74,34 @@ export default function App() {
     isOpen: false, title: '', message: '', onConfirm: null
   });
 
+  // --- FIX 1: RESET SCROLL (Setiap ganti halaman/chapter, layar kembali ke atas) ---
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [view, activeChapterIndex]);
+
+  // --- FIX 2: BACK BUTTON HP (History API) ---
+  useEffect(() => {
+    // Fungsi ini dipanggil saat tombol Back HP ditekan
+    const handlePopState = (event) => {
+      if (activeChapterIndex !== null) {
+         // Jika sedang baca chapter -> Kembali ke Daftar Isi
+         setActiveChapterIndex(null);
+      } else if (view !== 'home') {
+         // Jika sedang di menu lain -> Kembali ke Home
+         setView('home');
+         setCurrentStory(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view, activeChapterIndex]);
+
+  // Helper: Mendorong "History" agar tombol Back HP tidak keluar app
+  const pushHistory = () => {
+     window.history.pushState(null, "", window.location.href);
+  };
+
   // --- AUTH & INIT ---
   useEffect(() => {
     const initAuth = async () => {
@@ -149,6 +177,7 @@ export default function App() {
   };
 
   const startEditing = (story) => {
+    pushHistory(); // Tambahkan history
     setEditingId(story.id); setTitle(story.title);
     setAuthorName(story.authorName || userProfile.name || ''); setCoverUrl(story.coverUrl);
     setSynopsis(story.synopsis); setChapters(story.chapters || []);
@@ -157,6 +186,7 @@ export default function App() {
   };
 
   const startWritingNew = () => {
+      pushHistory(); // Tambahkan history
       resetForm();
       if (userProfile.name) setAuthorName(userProfile.name);
       setView('write');
@@ -281,7 +311,7 @@ export default function App() {
     setTempImageUrl(initialUrl); setShowImageModal(true);
   };
 
-  const handleSaveImageLink = () => { handleUploadAndSave(); }; // Reuse logic
+  const handleSaveImageLink = () => { handleUploadAndSave(); }; 
 
   const renderContent = (text) => {
     if (!text) return null;
@@ -302,7 +332,6 @@ export default function App() {
   // --- UI RENDER ---
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900 pb-10">
-      {/* NAVBAR RESPONSIVE */}
       <nav className="bg-white shadow-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <div onClick={() => { resetForm(); setView('home'); }} className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition">
@@ -312,12 +341,12 @@ export default function App() {
           <div className="flex gap-2">
             <button onClick={() => { resetForm(); setView('home'); }} className={`p-2 rounded-full transition ${view === 'home' ? 'bg-orange-100 text-orange-600' : 'text-gray-500 hover:bg-gray-100'}`} title="Beranda"><Home size={22} /></button>
             {user ? (
-                <button onClick={() => { resetForm(); setView('profile'); }} className={`flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-full transition border ${view === 'profile' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'border-transparent text-gray-600 hover:bg-gray-100'}`} title="Profil Saya">
+                <button onClick={() => { pushHistory(); resetForm(); setView('profile'); }} className={`flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-full transition border ${view === 'profile' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'border-transparent text-gray-600 hover:bg-gray-100'}`} title="Profil Saya">
                     {userProfile.photoUrl ? <img src={userProfile.photoUrl} className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover" alt="Profile" /> : <User size={20} />}
                     <span className="text-sm font-medium hidden sm:inline truncate max-w-[100px]">{userProfile.name || 'Penulis'}</span>
                 </button>
             ) : (
-                <button onClick={() => setView('login')} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-orange-600 text-white rounded-full text-xs sm:text-sm font-bold hover:bg-orange-700 transition">Masuk</button>
+                <button onClick={() => { pushHistory(); setView('login'); }} className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-orange-600 text-white rounded-full text-xs sm:text-sm font-bold hover:bg-orange-700 transition">Masuk</button>
             )}
           </div>
         </div>
@@ -325,7 +354,6 @@ export default function App() {
 
       {notification && <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 sm:px-6 py-3 rounded-full shadow-lg z-50 animate-bounce text-sm text-center w-[90%] sm:w-auto">{notification}</div>}
 
-      {/* MODAL KONFIRMASI */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center">
@@ -375,7 +403,7 @@ export default function App() {
                  <h1 className="text-2xl sm:text-3xl font-bold mb-2">Selamat Datang di Pustaka Kita</h1>
                  <p className="opacity-90 max-w-lg mb-6 text-sm sm:text-base">Mulai petualanganmu menulis cerita atau baca karya seru dari penulis lain.</p>
                  <div className="flex flex-wrap gap-3">
-                    {user ? (<><button onClick={startWritingNew} className="bg-white text-orange-600 px-4 sm:px-6 py-2 rounded-full font-bold shadow text-sm sm:text-base hover:bg-orange-50">Tulis Cerita</button><button onClick={() => setView('profile')} className="bg-orange-600 border border-white/30 text-white px-4 sm:px-6 py-2 rounded-full font-bold hover:bg-orange-700 shadow text-sm sm:text-base">Profil Saya</button></>) : (<button onClick={() => setView('login')} className="bg-white text-orange-600 px-6 py-2 rounded-full font-bold hover:bg-orange-50 shadow">Masuk untuk Menulis</button>)}
+                    {user ? (<><button onClick={startWritingNew} className="bg-white text-orange-600 px-4 sm:px-6 py-2 rounded-full font-bold shadow text-sm sm:text-base hover:bg-orange-50">Tulis Cerita</button><button onClick={() => { pushHistory(); setView('profile'); }} className="bg-orange-600 border border-white/30 text-white px-4 sm:px-6 py-2 rounded-full font-bold hover:bg-orange-700 shadow text-sm sm:text-base">Profil Saya</button></>) : (<button onClick={() => { pushHistory(); setView('login'); }} className="bg-white text-orange-600 px-6 py-2 rounded-full font-bold hover:bg-orange-50 shadow">Masuk untuk Menulis</button>)}
                  </div>
                </div>
                <BookOpen size={180} className="absolute -right-8 -bottom-10 text-white opacity-10 rotate-12 hidden sm:block" />
@@ -394,7 +422,7 @@ export default function App() {
                 /* Grid Responsive: 2 kolom di HP, 3 di Tablet, 4-5 di PC */
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-6">
                   {stories.map(story => (
-                    <div key={story.id} onClick={() => { setCurrentStory(story); setActiveChapterIndex(null); setView('read'); }} className="group cursor-pointer flex flex-col gap-2 relative">
+                    <div key={story.id} onClick={() => { pushHistory(); setCurrentStory(story); setActiveChapterIndex(null); setView('read'); }} className="group cursor-pointer flex flex-col gap-2 relative">
                       <div className="aspect-[2/3] w-full bg-gray-100 rounded-lg overflow-hidden shadow-sm group-hover:shadow-md transition relative">
                          {/* Menggunakan object-contain agar gambar tidak terpotong */}
                          <img src={story.coverUrl} alt={story.title} className="w-full h-full object-contain group-hover:scale-105 transition duration-500" onError={(e) => {e.target.src = 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover'}} />
@@ -496,7 +524,7 @@ export default function App() {
         {view === 'read' && currentStory && (
           <div className="animate-fade-in pb-20">
             <div className="flex justify-between items-center mb-6 sticky top-20 z-40 bg-white/80 backdrop-blur-sm p-2 rounded-lg shadow-sm">
-                <button onClick={() => { if(activeChapterIndex !== null) setActiveChapterIndex(null); else { resetForm(); setView('home'); } }} className="flex items-center gap-2 text-gray-600 hover:text-orange-600 transition text-sm font-medium"><ArrowLeft size={18} /> {activeChapterIndex !== null ? 'Daftar Isi' : 'Kembali'}</button>
+                <button onClick={() => { if(activeChapterIndex !== null) { pushHistory(); setActiveChapterIndex(null); } else { resetForm(); setView('home'); } }} className="flex items-center gap-2 text-gray-600 hover:text-orange-600 transition text-sm font-medium"><ArrowLeft size={18} /> {activeChapterIndex !== null ? 'Daftar Isi' : 'Kembali'}</button>
                 {user && currentStory.authorId === user.uid && (<div className="flex gap-2"><button onClick={(e) => handleDeleteStory(e, currentStory.id)} className="flex items-center gap-1 text-red-600 bg-red-50 px-3 py-1.5 rounded-full hover:bg-red-100 text-xs font-medium"><Trash2 size={14} /> Hapus</button><button onClick={() => startEditing(currentStory)} className="flex items-center gap-1 text-orange-600 bg-orange-50 px-3 py-1.5 rounded-full hover:bg-orange-100 text-xs font-medium"><Edit size={14} /> Edit</button></div>)}
             </div>
             {activeChapterIndex === null ? (
@@ -515,7 +543,7 @@ export default function App() {
                       <div className="bg-gray-50 px-4 py-3 border-b font-bold text-gray-700 text-sm">Daftar Isi ({currentStory.chapters.length} Bab)</div>
                       <div className="divide-y divide-gray-100">
                           {currentStory.chapters.map((chap, idx) => (
-                              <div key={idx} onClick={() => setActiveChapterIndex(idx)} className="p-4 hover:bg-orange-50 cursor-pointer flex justify-between items-center transition group">
+                              <div key={idx} onClick={() => { pushHistory(); setActiveChapterIndex(idx); }} className="p-4 hover:bg-orange-50 cursor-pointer flex justify-between items-center transition group">
                                   <div><span className="text-[10px] font-bold text-orange-600 mb-1 block tracking-wider uppercase">CHAPTER {idx + 1}</span><span className="font-medium text-gray-800 group-hover:text-orange-700 text-sm sm:text-base">{chap.title}</span></div>
                                   <ChevronRight size={18} className="text-gray-300 group-hover:text-orange-500" />
                               </div>
