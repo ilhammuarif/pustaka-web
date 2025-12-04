@@ -62,8 +62,9 @@ export default function App() {
   const [synopsis, setSynopsis] = useState('');
   const [genre, setGenre] = useState([]); 
   
-  // Chapter Form
+  // Chapter & Prologue Form
   const [chapters, setChapters] = useState([]); 
+  const [prologue, setPrologue] = useState(null);
   const [activeChapterIndex, setActiveChapterIndex] = useState(null); 
   const [chapterTitle, setChapterTitle] = useState('');
   const [chapterContent, setChapterContent] = useState('');
@@ -85,16 +86,27 @@ export default function App() {
   const [imageModalMode, setImageModalMode] = useState('content'); 
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
-  // --- HELPERS & UTILS (DIPINDAHKAN KE ATAS) ---
+  // --- HELPERS & UTILS ---
   const showNotification = (m) => { setNotification(m); setTimeout(() => setNotification(''), 3000); };
   
   const resetForm = () => { 
       setTitle(''); setAuthorName(''); setCoverUrl(''); setSynopsis(''); setGenre([]); 
-      setChapters([]); setActiveChapterIndex(null); setEditingId(null); setIsSynopsisExpanded(false); 
+      setChapters([]); setPrologue(null);
+      setActiveChapterIndex(null); setEditingId(null); setIsSynopsisExpanded(false); 
       setChapterTitle(''); setChapterContent(''); 
   };
   
   const pushHistory = () => window.history.pushState(null, "", window.location.href);
+
+  // --- FUNGSI MODAL ---
+  const openImageModal = (mode) => {
+    setImageModalMode(mode);
+    let initialUrl = '';
+    if (mode === 'cover') initialUrl = coverUrl;
+    else if (mode === 'profile') initialUrl = userProfile.photoUrl;
+    setTempImageUrl(initialUrl); 
+    setShowImageModal(true);
+  };
 
   // --- EFFECTS ---
   useEffect(() => { window.scrollTo(0, 0); }, [view, activeChapterIndex]);
@@ -181,7 +193,7 @@ export default function App() {
   const handleLogout = async () => { await signOut(auth); setView('home'); };
 
   const handleSendComment = async () => {
-      if (!user) { showNotification("Login dulu untuk komentar!"); return; }
+      if (!user) { showNotification("Login dulu!"); return; }
       if (!newComment.trim()) return;
       setIsSendingComment(true);
       try {
@@ -206,14 +218,16 @@ export default function App() {
     setAuthorName(story.authorName || userProfile.name || ''); setCoverUrl(story.coverUrl);
     setSynopsis(story.synopsis); setChapters(story.chapters || []);
     setGenre(Array.isArray(story.genre) ? story.genre : (story.genre ? [story.genre] : []));
-    setActiveChapterIndex(null); setView('write');
+    setPrologue(story.prologue || null);
+    setActiveChapterIndex(null); setChapterTitle(''); setChapterContent('');
+    setView('write');
   };
 
   const startWritingNew = () => { pushHistory(); resetForm(); if(userProfile.name) setAuthorName(userProfile.name); setView('write'); };
 
   const handleToggleLike = async (e, story) => {
       e.stopPropagation();
-      if (!user) { showNotification("Login dulu untuk like!"); return; }
+      if (!user) { showNotification("Login dulu!"); return; }
       const storyRef = doc(db, 'artifacts', appId, 'public', 'data', 'stories', story.id);
       const isLiked = story.likes && story.likes.includes(user.uid);
       try {
@@ -222,7 +236,22 @@ export default function App() {
       } catch (e) {}
   };
 
-  // --- CRUD HANDLERS ---
+  const closeConfirmModal = () => setConfirmModal({ ...confirmModal, isOpen: false });
+  const handleDeleteStory = (e, id) => {
+    e.stopPropagation();
+    setConfirmModal({ isOpen: true, title: 'Hapus Novel', message: 'Hapus permanen?', onConfirm: async () => {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stories', id));
+        if (view === 'read') setView('home');
+        setConfirmModal({...confirmModal, isOpen:false});
+    }});
+  };
+
+  const handleRemoveCover = (e) => {
+    if(e) e.stopPropagation();
+    setConfirmModal({ isOpen: true, title: 'Hapus Sampul', message: 'Hapus gambar sampul ini?', onConfirm: () => { setCoverUrl(''); setConfirmModal({...confirmModal, isOpen:false}); }});
+  };
+
+  // --- CHAPTER & PROLOG HANDLERS ---
   const handleEditChapter = (index) => {
     const chapter = chapters[index];
     if (!chapter) return;
@@ -232,6 +261,24 @@ export default function App() {
     setWriteMode('edit'); 
   };
 
+  const handleEditPrologue = () => {
+      setActiveChapterIndex('prologue');
+      setChapterTitle('Prolog'); // Set default untuk internal, tapi tidak ditampilkan di form
+      setChapterContent(prologue ? prologue.content : '');
+      setWriteMode('edit');
+  };
+
+  const handleDeletePrologue = () => {
+      setConfirmModal({
+        isOpen: true, title: 'Hapus Prolog', message: 'Hapus prolog ini?',
+        onConfirm: () => {
+          setPrologue(null);
+          if (activeChapterIndex === 'prologue') { setActiveChapterIndex(null); setChapterTitle(''); setChapterContent(''); }
+          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        }
+      });
+  };
+
   const handleDeleteChapter = (index) => {
     setConfirmModal({
       isOpen: true, title: 'Hapus Bab', message: 'Hapus bab ini?',
@@ -239,38 +286,48 @@ export default function App() {
         const updatedChapters = chapters.filter((_, i) => i !== index);
         setChapters(updatedChapters);
         if (activeChapterIndex === index) { setActiveChapterIndex(null); setChapterTitle(''); setChapterContent(''); }
-        setConfirmModal({...confirmModal, isOpen:false});
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
       }
     });
   };
 
   const handleSaveChapterToLocal = () => {
-    if (!chapterTitle || !chapterContent) { showNotification("Judul & Isi wajib diisi!"); return; }
-    const newChapterData = { title: chapterTitle, content: chapterContent };
-    const updatedChapters = [...chapters];
-    if (activeChapterIndex === 'new') updatedChapters.push(newChapterData);
-    else if (typeof activeChapterIndex === 'number') updatedChapters[activeChapterIndex] = newChapterData;
-    setChapters(updatedChapters);
+    // Validasi Judul hanya jika BUKAN Prolog
+    if (activeChapterIndex !== 'prologue' && !chapterTitle) {
+         showNotification("Judul Bab wajib diisi!"); return; 
+    }
+    if (!chapterContent) { showNotification("Isi cerita wajib diisi!"); return; }
+    
+    if (activeChapterIndex === 'prologue') {
+        // Prolog otomatis berjudul "Prolog"
+        setPrologue({ title: 'Prolog', content: chapterContent });
+    } else {
+        const newChapterData = { title: chapterTitle, content: chapterContent };
+        const updatedChapters = [...chapters];
+        if (activeChapterIndex === 'new') updatedChapters.push(newChapterData);
+        else if (typeof activeChapterIndex === 'number') updatedChapters[activeChapterIndex] = newChapterData;
+        setChapters(updatedChapters);
+    }
+    
     setChapterTitle(''); setChapterContent(''); setWriteMode('edit'); setActiveChapterIndex(null); 
   };
 
-  const handleRemoveCover = (e) => {
-    if(e) e.stopPropagation();
-    setConfirmModal({
-      isOpen: true, title: 'Hapus Sampul', message: 'Hapus gambar sampul ini?',
-      onConfirm: () => { setCoverUrl(''); setConfirmModal({...confirmModal, isOpen:false}); }
-    });
+  const handlePublish = async () => {
+    if (!title || chapters.length === 0) { showNotification("Judul & min 1 Bab wajib!"); return; }
+    if (genre.length === 0) { showNotification("Pilih genre!"); return; }
+    setIsSaving(true);
+    try {
+      const data = { 
+          title, authorName: authorName || 'Anonim', coverUrl, synopsis, genre, chapters, prologue,
+          authorId: user.uid, updatedAt: serverTimestamp() 
+      };
+      if (editingId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stories', editingId), data);
+      else { data.createdAt = serverTimestamp(); data.likes = []; await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'stories'), data); }
+      resetForm(); setView('home'); showNotification(editingId ? "Terupdate!" : "Terbit!");
+    } catch { showNotification("Gagal."); } finally { setIsSaving(false); }
   };
 
-  const openImageModal = (mode) => {
-    setImageModalMode(mode);
-    let initialUrl = '';
-    if (mode === 'cover') initialUrl = coverUrl;
-    else if (mode === 'profile') initialUrl = userProfile.photoUrl;
-    setTempImageUrl(initialUrl); 
-    setShowImageModal(true);
-  };
-
+  // --- UPLOAD HANDLER ---
   const handleUpload = async () => { /* Logic upload file jika ada */ }; 
 
   const handleSaveImageLink = () => {
@@ -287,29 +344,6 @@ export default function App() {
     else if (imageModalMode === 'profile') setUserProfile(p => ({ ...p, photoUrl: finalUrl }));
     else setChapterContent(p => p + `\n\n[GAMBAR: ${finalUrl}]\n\n`);
     setShowImageModal(false); setTempImageUrl('');
-  };
-
-  const closeConfirmModal = () => setConfirmModal({ ...confirmModal, isOpen: false });
-  
-  const handleDeleteStory = (e, id) => {
-    e.stopPropagation();
-    setConfirmModal({ isOpen: true, title: 'Hapus Novel', message: 'Hapus permanen?', onConfirm: async () => {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stories', id));
-        if (view === 'read') setView('home');
-        setConfirmModal({...confirmModal, isOpen:false});
-    }});
-  };
-
-  const handlePublish = async () => {
-    if (!title || chapters.length === 0) { showNotification("Judul & min 1 Bab wajib!"); return; }
-    if (genre.length === 0) { showNotification("Pilih genre!"); return; }
-    setIsSaving(true);
-    try {
-      const data = { title, authorName: authorName || 'Anonim', coverUrl, synopsis, genre, chapters, authorId: user.uid, updatedAt: serverTimestamp() };
-      if (editingId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stories', editingId), data);
-      else { data.createdAt = serverTimestamp(); data.likes = []; await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'stories'), data); }
-      resetForm(); setView('home'); showNotification(editingId ? "Terupdate!" : "Terbit!");
-    } catch { showNotification("Gagal."); } finally { setIsSaving(false); }
   };
 
   const toggleGenre = (g) => setGenre(p => p.includes(g) ? p.filter(i => i !== g) : (p.length >= 4 ? p : [...p, g]));
@@ -421,8 +455,17 @@ export default function App() {
                       </div>
                   </div>
                   <div className="bg-white border rounded-xl overflow-hidden">
-                      <div className="bg-gray-50 px-4 py-2 border-b text-sm font-bold text-gray-600">Daftar Bab ({currentStory.chapters.length})</div>
-                      <div className="divide-y">{currentStory.chapters.map((c,i) => <div key={i} onClick={()=>{pushHistory(); setActiveChapterIndex(i)}} className="p-3 hover:bg-orange-50 cursor-pointer flex justify-between items-center text-sm"><span><span className="font-bold text-orange-600 mr-2">BAB {i+1}</span> {c.title}</span><ChevronRight size={16} className="text-gray-300"/></div>)}</div>
+                      <div className="bg-gray-50 px-4 py-2 border-b text-sm font-bold text-gray-600">Daftar Bab ({currentStory.chapters.length + (currentStory.prologue ? 1 : 0)})</div>
+                      <div className="divide-y">
+                          {/* PROLOGUE ITEM */}
+                          {currentStory.prologue && (
+                              <div onClick={()=>{pushHistory(); setActiveChapterIndex('prologue')}} className="p-3 hover:bg-orange-50 cursor-pointer flex justify-between items-center text-sm border-b-4 border-orange-50">
+                                  <span className="font-bold text-orange-700">PROLOG</span><ChevronRight size={16} className="text-gray-300"/>
+                              </div>
+                          )}
+                          {/* CHAPTER ITEMS */}
+                          {currentStory.chapters.map((c,i) => <div key={i} onClick={()=>{pushHistory(); setActiveChapterIndex(i)}} className="p-3 hover:bg-orange-50 cursor-pointer flex justify-between items-center text-sm"><span><span className="font-bold text-orange-600 mr-2">BAB {i+1}</span> {c.title}</span><ChevronRight size={16} className="text-gray-300"/></div>)}
+                      </div>
                   </div>
                   <div className="mt-8">
                       <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><MessageCircle size={18}/> Komentar Pembaca</h3>
@@ -449,11 +492,21 @@ export default function App() {
               </div>
             ) : (
               <div className="max-w-3xl mx-auto">
-                  <div className="text-center mb-8"><h2 className="text-xs font-bold text-orange-600 tracking-widest uppercase mb-1">Bab {activeChapterIndex + 1}</h2><h1 className="text-2xl sm:text-3xl font-serif font-bold text-gray-900 leading-tight">{currentStory.chapters[activeChapterIndex].title}</h1></div>
-                  <article className="font-serif leading-relaxed text-gray-800 px-2 text-justify">{renderContent(currentStory.chapters[activeChapterIndex].content)}</article>
+                  <div className="text-center mb-8">
+                      {/* HANYA TAMPILKAN JUDUL BAB JIKA BUKAN PROLOG */}
+                      {activeChapterIndex !== 'prologue' && (
+                          <h2 className="text-xs font-bold text-orange-600 tracking-widest uppercase mb-1">Bab {activeChapterIndex + 1}</h2>
+                      )}
+                      <h1 className="text-2xl sm:text-3xl font-serif font-bold text-gray-900 leading-tight">
+                          {activeChapterIndex === 'prologue' 
+                            ? 'Prolog' // JUDUL PROLOG SELALU 'PROLOG'
+                            : (currentStory.chapters[activeChapterIndex]?.title || '')}
+                      </h1>
+                  </div>
+                  <article className="font-serif leading-relaxed text-gray-800 px-2 text-justify">{renderContent(activeChapterIndex === 'prologue' ? (currentStory.prologue?.content || '') : (currentStory.chapters[activeChapterIndex]?.content || ''))}</article>
                   <div className="flex justify-between mt-10 pt-6 border-t">
-                      <button disabled={activeChapterIndex===0} onClick={()=>{window.scrollTo(0,0); setActiveChapterIndex(p=>p-1)}} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-orange-600 disabled:opacity-30"><ChevronLeft size={16}/> Sebelumnya</button>
-                      <button disabled={activeChapterIndex===currentStory.chapters.length-1} onClick={()=>{window.scrollTo(0,0); setActiveChapterIndex(p=>p+1)}} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-orange-600 disabled:opacity-30">Selanjutnya <ChevronRight size={16}/></button>
+                      <button disabled={activeChapterIndex==='prologue' || (activeChapterIndex===0 && !currentStory.prologue)} onClick={()=>{window.scrollTo(0,0); if(activeChapterIndex===0 && currentStory.prologue) setActiveChapterIndex('prologue'); else setActiveChapterIndex(p=>p-1)}} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-orange-600 disabled:opacity-30"><ChevronLeft size={16}/> Sebelumnya</button>
+                      <button disabled={activeChapterIndex===currentStory.chapters.length-1} onClick={()=>{window.scrollTo(0,0); if(activeChapterIndex==='prologue') setActiveChapterIndex(0); else setActiveChapterIndex(p=>p+1)}} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-orange-600 disabled:opacity-30">Selanjutnya <ChevronRight size={16}/></button>
                   </div>
               </div>
             )}
@@ -494,7 +547,6 @@ export default function App() {
             <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2 text-gray-800"><PenTool className="text-orange-600" /> {editingId ? 'Edit Novel' : 'Novel Baru'}</h2>
             {activeChapterIndex === null && (
               <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 space-y-4 mb-6">
-                {/* HEADER NAVIGASI BARU: TOMBOL KEMBALI */}
                 <div className="flex justify-between items-center border-b pb-2 mb-2">
                     <h3 className="font-bold text-gray-700 text-sm sm:text-base">Informasi Novel</h3>
                     <button onClick={() => { pushHistory(); resetForm(); setView('home'); }} className="text-xs sm:text-sm text-gray-500 hover:text-orange-600 flex items-center gap-1"><ArrowLeft size={14}/> Batal</button>
@@ -502,7 +554,6 @@ export default function App() {
 
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Judul Novel</label><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Judul Novel..." /></div>
                 
-                {/* PILIHAN GENRE (MULTI-SELECT) */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Genre (Pilih Maksimal 4)</label>
                     <div className="flex flex-wrap gap-2">
@@ -540,22 +591,45 @@ export default function App() {
             <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
               {activeChapterIndex === null ? (
                 <div>
-                  <div className="flex justify-between items-center mb-4 border-b pb-2"><h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm sm:text-base"><List size={18}/> Daftar Bab ({chapters.length})</h3><button onClick={() => setActiveChapterIndex('new')} className="text-xs sm:text-sm bg-orange-100 text-orange-600 px-3 py-1.5 rounded-full hover:bg-orange-200 transition flex items-center gap-1 font-medium"><PlusCircle size={14} /> Tambah</button></div>
-                  {chapters.length === 0 ? (<div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg bg-gray-50"><p>Belum ada bab.</p><p className="text-sm">Klik "Tambah" untuk mulai.</p></div>) : (<div className="space-y-2">{chapters.map((chap, idx) => (<div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition group"><div className="flex items-center gap-3"><span className="w-6 h-6 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span><span className="font-medium text-gray-700 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs">{chap.title}</span></div><div className="flex gap-2"><button onClick={() => handleEditChapter(idx)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={() => handleDeleteChapter(idx)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></div>))}</div>)}
+                  <div className="flex justify-between items-center mb-4 border-b pb-2">
+                      <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm sm:text-base"><List size={18}/> Daftar Bab ({chapters.length + (prologue ? 1 : 0)})</h3>
+                      <div className="flex gap-2">
+                          {!prologue ? (
+                              <button onClick={() => { setChapterTitle(''); setChapterContent(''); setActiveChapterIndex('prologue'); }} className="text-xs sm:text-sm bg-purple-100 text-purple-600 px-3 py-1.5 rounded-full hover:bg-purple-200 transition flex items-center gap-1 font-medium"><PlusCircle size={14} /> Prolog</button>
+                          ) : null}
+                          <button onClick={() => { setChapterTitle(''); setChapterContent(''); setActiveChapterIndex('new'); }} className="text-xs sm:text-sm bg-orange-100 text-orange-600 px-3 py-1.5 rounded-full hover:bg-orange-200 transition flex items-center gap-1 font-medium"><PlusCircle size={14} /> Bab</button>
+                      </div>
+                  </div>
+
+                  {prologue && (
+                       <div className="p-3 border rounded-lg hover:bg-purple-50 transition group mb-2 border-purple-100 bg-purple-50/50">
+                          <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-3"><span className="w-16 text-xs font-bold text-purple-600">PROLOG</span><span className="font-medium text-gray-700 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs"></span></div>
+                              <div className="flex gap-2"><button onClick={handleEditPrologue} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={handleDeletePrologue} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div>
+                          </div>
+                       </div>
+                  )}
+
+                  {chapters.length === 0 && !prologue ? (<div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg bg-gray-50"><p>Belum ada bab.</p><p className="text-sm">Klik "Tambah" untuk mulai.</p></div>) : (<div className="space-y-2">{chapters.map((chap, idx) => (<div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition group"><div className="flex items-center gap-3"><span className="w-6 h-6 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span><span className="font-medium text-gray-700 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs">{chap.title}</span></div><div className="flex gap-2"><button onClick={() => handleEditChapter(idx)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={() => handleDeleteChapter(idx)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></div>))}</div>)}
                   <div className="mt-8 flex justify-end gap-3 pt-4 border-t"><button onClick={() => { resetForm(); setView('home'); }} className="px-4 sm:px-6 py-2 rounded-full border text-gray-600 hover:bg-gray-50 text-sm sm:text-base">Batal</button><button onClick={handlePublish} disabled={isSaving} className={`px-4 sm:px-6 py-2 rounded-full bg-orange-600 text-white font-semibold hover:bg-orange-700 flex items-center gap-2 text-sm sm:text-base ${isSaving ? 'opacity-50' : ''}`}><Save size={18} /> {editingId ? 'Update' : 'Terbitkan'}</button></div>
                 </div>
               ) : (
                 <div className="animate-fade-in">
                   <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-gray-800 text-sm sm:text-base">{activeChapterIndex === 'new' ? 'Menulis Bab Baru' : `Edit Bab`}</h3>
-                      {/* HEADER NAVIGASI BARU: TOMBOL KEMBALI (DARI CHAPTER KE LIST) */}
+                      <h3 className="font-bold text-gray-800 text-sm sm:text-base">
+                          {activeChapterIndex === 'new' ? 'Menulis Bab Baru' : activeChapterIndex === 'prologue' ? 'Edit Prolog' : `Edit Bab`}
+                      </h3>
                       <button onClick={() => setActiveChapterIndex(null)} className="text-xs sm:text-sm text-gray-500 hover:text-orange-600 flex items-center gap-1"><ArrowLeft size={14}/> Kembali ke Daftar</button>
                   </div>
                   <div className="space-y-4">
-                    <input type="text" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-lg focus:border-orange-500 outline-none" placeholder="Judul Bab..." />
+                    {/* INPUT JUDUL HANYA MUNCUL JIKA BUKAN PROLOG */}
+                    {activeChapterIndex !== 'prologue' && (
+                        <input type="text" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-lg focus:border-orange-500 outline-none" placeholder="Judul Bab..." />
+                    )}
+                    
                     <div className="flex gap-2 border-b border-gray-200 mb-0"><button onClick={() => setWriteMode('edit')} className={`px-3 sm:px-4 py-2 flex items-center gap-2 text-xs sm:text-sm font-medium rounded-t-lg transition ${writeMode === 'edit' ? 'bg-orange-50 text-orange-600 border-b-2 border-orange-500' : 'text-gray-500 hover:bg-gray-50'}`}><FileText size={16} /> Edit</button><button onClick={() => setWriteMode('preview')} className={`px-3 sm:px-4 py-2 flex items-center gap-2 text-xs sm:text-sm font-medium rounded-t-lg transition ${writeMode === 'preview' ? 'bg-orange-50 text-orange-600 border-b-2 border-orange-500' : 'text-gray-500 hover:bg-gray-50'}`}><Eye size={16} /> Preview</button></div>
                     <div className="border border-gray-300 rounded-b-lg rounded-tr-lg overflow-hidden bg-white h-[50vh] sm:h-[60vh] flex flex-col">
-                      {writeMode === 'edit' ? (<><div className="bg-gray-50 border-b px-3 py-2 flex gap-2"><button onClick={() => openImageModal('content')} className="flex items-center gap-1 text-xs bg-white border px-3 py-1.5 rounded hover:bg-gray-100 text-gray-700"><ImageIcon size={14} /> Gambar</button></div><textarea value={chapterContent} onChange={(e) => setChapterContent(e.target.value)} className="w-full p-4 h-full outline-none resize-none font-serif text-base sm:text-lg leading-relaxed flex-1" placeholder="Tulis isi bab di sini..." /></>) : (<div className="p-4 sm:p-6 h-full overflow-y-auto bg-white"><div className="font-serif text-gray-800 text-base sm:text-lg md:text-xl leading-relaxed whitespace-pre-wrap">{renderContent(chapterContent || "Belum ada konten.")}</div></div>)}
+                      {writeMode === 'edit' ? (<><div className="bg-gray-50 border-b px-3 py-2 flex gap-2"><button onClick={() => openImageModal('content')} className="flex items-center gap-1 text-xs bg-white border px-3 py-1.5 rounded hover:bg-gray-100 text-gray-700"><ImageIcon size={14} /> Gambar</button></div><textarea value={chapterContent} onChange={(e) => setChapterContent(e.target.value)} className="w-full p-4 h-full outline-none resize-none font-serif text-base sm:text-lg leading-relaxed flex-1" placeholder="Tulis isi cerita di sini..." /></>) : (<div className="p-4 sm:p-6 h-full overflow-y-auto bg-white"><div className="font-serif text-gray-800 text-base sm:text-lg md:text-xl leading-relaxed whitespace-pre-wrap">{renderContent(chapterContent || "Belum ada konten.")}</div></div>)}
                     </div>
                     <div className="flex justify-end gap-3"><button onClick={() => {setChapterTitle(''); setChapterContent(''); setActiveChapterIndex(null);}} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Batal</button><button onClick={handleSaveChapterToLocal} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm">Simpan</button></div>
                   </div>
