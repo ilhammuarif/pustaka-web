@@ -5,7 +5,7 @@ import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, s
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, getDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// --- 1. KONFIGURASI FIREBASE ---
+// --- 1. KONFIGURASI FIREBASE (Milik Ilham - WebNovelKuu) ---
 const firebaseConfig = {
   apiKey: "AIzaSyBnc9NMHH4bQdfBm4E1EIKmCbhCvX23yEA",
   authDomain: "webnovelkuu.firebaseapp.com",
@@ -15,16 +15,19 @@ const firebaseConfig = {
   appId: "1:758683527144:web:069e6ef93b87158ef9265d"
 };
 
+// --- KODE RAHASIA PENDAFTARAN ---
 const SECRET_CODE = "VIP-ILHAM"; 
 
+// Inisialisasi Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
+
 const appId = 'pustaka-utama'; 
 
 // DAFTAR GENRE (KATEGORI)
-const GENRES = ["Semua", "Aksi", "Petualangan", "Romantis", "Horor", "Fantasi", "Sci-Fi", "Drama", "Komedi", "Misteri"];
+const GENRES = ["Semua", "Aksi", "Petualangan", "Romantis", "Horor", "Fantasi", "Sci-Fi", "Drama", "Komedi", "Misteri", "Slice of Life", "Isekai"];
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -44,7 +47,7 @@ export default function App() {
   const [currentStory, setCurrentStory] = useState(null);
   const [isLoadingStories, setIsLoadingStories] = useState(true);
   
-  // SEARCH & FILTER STATE (BARU)
+  // SEARCH & FILTER STATE
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenreFilter, setSelectedGenreFilter] = useState('Semua');
 
@@ -53,7 +56,7 @@ export default function App() {
   const [authorName, setAuthorName] = useState(''); 
   const [coverUrl, setCoverUrl] = useState('');
   const [synopsis, setSynopsis] = useState('');
-  const [genre, setGenre] = useState('Aksi'); // BARU: Input Genre saat nulis
+  const [genre, setGenre] = useState([]); // UBAH: Sekarang Array (Bisa banyak)
   
   // Chapter Form
   const [chapters, setChapters] = useState([]); 
@@ -163,7 +166,16 @@ export default function App() {
     pushHistory(); setEditingId(story.id); setTitle(story.title);
     setAuthorName(story.authorName || userProfile.name || ''); setCoverUrl(story.coverUrl);
     setSynopsis(story.synopsis); setChapters(story.chapters || []);
-    setGenre(story.genre || 'Aksi'); // Load genre
+    
+    // Handle genre lama (string) vs baru (array)
+    if (Array.isArray(story.genre)) {
+        setGenre(story.genre);
+    } else if (story.genre) {
+        setGenre([story.genre]);
+    } else {
+        setGenre([]);
+    }
+    
     setActiveChapterIndex(null); setChapterTitle(''); setChapterContent('');
     setView('write');
   };
@@ -172,6 +184,22 @@ export default function App() {
       pushHistory(); resetForm();
       if (userProfile.name) setAuthorName(userProfile.name);
       setView('write');
+  };
+
+  // Helper untuk toggle genre
+  const toggleGenre = (selected) => {
+      setGenre(prev => {
+          if (prev.includes(selected)) {
+              return prev.filter(g => g !== selected);
+          } else {
+              // Batasi maks 4 genre agar tidak terlalu penuh (opsional)
+              if (prev.length >= 4) {
+                  showNotification("Maksimal 4 genre ya!");
+                  return prev;
+              }
+              return [...prev, selected];
+          }
+      });
   };
 
   const closeConfirmModal = () => setConfirmModal({ ...confirmModal, isOpen: false });
@@ -229,6 +257,8 @@ export default function App() {
 
   const handlePublish = async () => {
     if (!title || chapters.length === 0) { showNotification("Judul & minimal 1 Bab wajib!"); return; }
+    if (genre.length === 0) { showNotification("Pilih minimal 1 genre!"); return; } // Validasi Genre
+    
     setIsSaving(true);
     try {
       const storyData = {
@@ -280,7 +310,7 @@ export default function App() {
   const showNotification = (msg) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
 
   const resetForm = () => {
-    setTitle(''); setAuthorName(''); setCoverUrl(''); setSynopsis(''); setGenre('Aksi');
+    setTitle(''); setAuthorName(''); setCoverUrl(''); setSynopsis(''); setGenre([]);
     setChapters([]); setChapterTitle(''); setChapterContent('');
     setActiveChapterIndex(null); setEditingId(null); setWriteMode('edit');
   };
@@ -315,7 +345,20 @@ export default function App() {
   const filteredStories = stories.filter(story => {
     const matchesSearch = story.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           (story.authorName && story.authorName.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesGenre = selectedGenreFilter === 'Semua' || story.genre === selectedGenreFilter || (!story.genre && selectedGenreFilter === 'Semua');
+    
+    // Logika Filter: Cocok jika salah satu genre cerita sama dengan filter
+    // Atau jika filter 'Semua', tampilkan semua
+    let matchesGenre = false;
+    if (selectedGenreFilter === 'Semua') {
+        matchesGenre = true;
+    } else {
+        if (Array.isArray(story.genre)) {
+            matchesGenre = story.genre.includes(selectedGenreFilter);
+        } else {
+            matchesGenre = story.genre === selectedGenreFilter;
+        }
+    }
+    
     return matchesSearch && matchesGenre;
   });
 
@@ -394,7 +437,6 @@ export default function App() {
                <BookOpen size={180} className="absolute -right-8 -bottom-10 text-white opacity-10 rotate-12 hidden sm:block" />
             </div>
 
-            {/* SEARCH & FILTER BAR (BARU) */}
             <div className="flex flex-col md:flex-row gap-3 mb-6">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-3 text-gray-400" size={18} />
@@ -434,7 +476,14 @@ export default function App() {
                       <div className="aspect-[2/3] w-full bg-gray-100 rounded-lg overflow-hidden shadow-sm group-hover:shadow-md transition relative">
                          <img src={story.coverUrl} alt={story.title} className="w-full h-full object-contain group-hover:scale-105 transition duration-500" onError={(e) => {e.target.src = 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover'}} />
                          <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">{story.chapters.length} Bab</div>
-                         {story.genre && <div className="absolute top-2 left-2 bg-orange-500/90 text-white text-[9px] px-1.5 py-0.5 rounded font-bold">{story.genre}</div>}
+                         {/* TAMPILKAN GENRE (MAX 3) */}
+                         <div className="absolute top-2 left-2 flex flex-wrap gap-1 max-w-[90%]">
+                            { (Array.isArray(story.genre) ? story.genre : [story.genre]).filter(Boolean).slice(0, 3).map((g, idx) => (
+                                <span key={idx} className="bg-orange-500/90 text-white text-[9px] px-1.5 py-0.5 rounded font-bold backdrop-blur-sm">
+                                    {g}
+                                </span>
+                            ))}
+                         </div>
                       </div>
                       <div>
                         <h3 className="font-bold text-sm sm:text-base text-gray-800 leading-tight line-clamp-2 group-hover:text-orange-600">{story.title}</h3>
@@ -447,7 +496,6 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: LOGIN */}
         {view === 'login' && (
             <div className="flex items-center justify-center py-6 sm:py-10 animate-fade-in">
                 <div className="bg-white w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl border border-gray-100 mx-2">
@@ -464,7 +512,6 @@ export default function App() {
             </div>
         )}
 
-        {/* VIEW: PROFILE */}
         {view === 'profile' && user && (
             <div className="animate-fade-in max-w-4xl mx-auto">
                 <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2 text-gray-800"><User className="text-orange-600" /> Profil Penulis</h2>
@@ -482,7 +529,6 @@ export default function App() {
             </div>
         )}
 
-        {/* VIEW: WRITE */}
         {view === 'write' && (
           <div className="max-w-3xl mx-auto animate-fade-in">
             <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2 text-gray-800"><PenTool className="text-orange-600" /> {editingId ? 'Edit Novel' : 'Novel Baru'}</h2>
@@ -491,16 +537,24 @@ export default function App() {
                 <h3 className="font-bold text-gray-700 border-b pb-2 text-sm sm:text-base">Informasi Novel</h3>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Judul Novel</label><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Judul Novel..." /></div>
                 
-                {/* INPUT GENRE (BARU) */}
+                {/* PILIHAN GENRE (MULTI-SELECT) */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Genre (Kategori)</label>
-                    <select 
-                        value={genre} 
-                        onChange={(e) => setGenre(e.target.value)}
-                        className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-white"
-                    >
-                        {GENRES.filter(g => g !== "Semua").map(g => <option key={g} value={g}>{g}</option>)}
-                    </select>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Genre (Pilih Maksimal 4)</label>
+                    <div className="flex flex-wrap gap-2">
+                        {GENRES.filter(g => g !== "Semua").map(g => (
+                            <button
+                                key={g}
+                                onClick={() => toggleGenre(g)}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition border ${
+                                    genre.includes(g) 
+                                    ? 'bg-orange-100 text-orange-600 border-orange-200' 
+                                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                            >
+                                {g}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Penulis</label><input type="text" value={authorName} onChange={(e) => setAuthorName(e.target.value)} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Otomatis dari Profil..." /></div>
@@ -539,7 +593,6 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW: READ RESPONSIVE */}
         {view === 'read' && currentStory && (
           <div className="animate-fade-in pb-20">
             <div className="flex justify-between items-center mb-6 sticky top-20 z-40 bg-white/80 backdrop-blur-sm p-2 rounded-lg shadow-sm">
