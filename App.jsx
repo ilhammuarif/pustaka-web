@@ -3,7 +3,6 @@ import { BookOpen, PenTool, Home, Image as ImageIcon, Save, ArrowLeft, PlusCircl
 import { initializeApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithCustomToken } from "firebase/auth";
 import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, updateDoc, deleteDoc, setDoc, getDoc } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 // --- 1. KONFIGURASI FIREBASE (Milik Ilham - WebNovelKuu) ---
 const firebaseConfig = {
@@ -16,14 +15,12 @@ const firebaseConfig = {
 };
 
 // --- KODE RAHASIA PENDAFTARAN ---
-// Ganti tulisan ini jika ingin mengubah password pendaftaran
 const SECRET_CODE = "VIP-ILHAM"; 
 
-// Inisialisasi Firebase
+// Inisialisasi Firebase (Tanpa Storage)
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const storage = getStorage(app);
 
 // ID Aplikasi Statis
 const appId = 'pustaka-utama'; 
@@ -65,11 +62,9 @@ export default function App() {
   const [notification, setNotification] = useState('');
   const [editingId, setEditingId] = useState(null);
 
-  // State Modal & Upload
+  // State Modal (Hanya Link)
   const [showImageModal, setShowImageModal] = useState(false);
   const [tempImageUrl, setTempImageUrl] = useState('');
-  const [imageFile, setImageFile] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
   const [imageModalMode, setImageModalMode] = useState('content'); 
   
   const [confirmModal, setConfirmModal] = useState({
@@ -100,7 +95,7 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
-  // --- 3. Fungsi Auth (Login/Register) ---
+  // --- 3. Fungsi Auth ---
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -119,7 +114,6 @@ export default function App() {
             showNotification("Berhasil masuk.");
         }
     } catch (error) {
-        // Jangan spam console jika errornya cuma salah kode
         if (error.message !== "kode-salah") {
             console.error("Auth Error:", error);
         }
@@ -261,39 +255,6 @@ export default function App() {
     finally { setIsSaving(false); }
   };
 
-  // --- FILE UPLOAD HANDLER ---
-  const handleUploadAndSave = async () => {
-    if (imageFile) {
-        setIsUploading(true);
-        try {
-            const storageRef = ref(storage, `images/${Date.now()}_${imageFile.name}`);
-            const snapshot = await uploadBytes(storageRef, imageFile);
-            const downloadURL = await getDownloadURL(snapshot.ref);
-            applyImage(downloadURL);
-            showNotification("Gambar berhasil diupload!");
-        } catch (error) {
-            console.error("Upload gagal:", error);
-            showNotification("Gagal upload gambar.");
-        } finally { setIsUploading(false); }
-    } else if (tempImageUrl) {
-        let finalUrl = tempImageUrl;
-        if (tempImageUrl.includes('drive.google.com') || tempImageUrl.includes('docs.google.com')) {
-          const idMatch = tempImageUrl.match(/[-\w]{25,}/);
-          if (idMatch) finalUrl = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1200`;
-        }
-        applyImage(finalUrl);
-    } else {
-        showNotification("Pilih file atau masukkan link!");
-    }
-  };
-
-  const applyImage = (url) => {
-    if (imageModalMode === 'cover') setCoverUrl(url);
-    else if (imageModalMode === 'profile') setUserProfile(prev => ({ ...prev, photoUrl: url }));
-    else setChapterContent(prev => prev + `\n\n[GAMBAR: ${url}]\n\n`);
-    setShowImageModal(false); setTempImageUrl(''); setImageFile(null);
-  };
-
   const showNotification = (msg) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
 
   const resetForm = () => {
@@ -310,20 +271,30 @@ export default function App() {
     setTempImageUrl(initialUrl); setShowImageModal(true);
   };
 
+  // --- GOOGLE DRIVE LINK CONVERTER ---
   const handleSaveImageLink = () => {
     if (!tempImageUrl) { setShowImageModal(false); return; }
+    
     let finalUrl = tempImageUrl;
+    
+    // Logika Pintar: Ubah link Google Drive biasa jadi link gambar
     if (tempImageUrl.includes('drive.google.com') || tempImageUrl.includes('docs.google.com')) {
+      // Cari ID File (kode acak panjang)
       const idMatch = tempImageUrl.match(/[-\w]{25,}/);
       if (idMatch) {
-        finalUrl = `https://drive.google.com/thumbnail?id=${idMatch[0]}&sz=w1200`;
+        const fileId = idMatch[0];
+        // Ubah jadi format thumbnail besar agar bisa tampil
+        finalUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1200`;
         showNotification("Link Google Drive berhasil dikonversi!");
       }
     }
+
     if (imageModalMode === 'cover') setCoverUrl(finalUrl);
     else if (imageModalMode === 'profile') setUserProfile(prev => ({ ...prev, photoUrl: finalUrl }));
     else setChapterContent(prev => prev + `\n\n[GAMBAR: ${finalUrl}]\n\n`);
-    setShowImageModal(false); setTempImageUrl('');
+    
+    setShowImageModal(false); 
+    setTempImageUrl('');
   };
 
   const renderContent = (text) => {
@@ -333,7 +304,16 @@ export default function App() {
       if (imageMatch) {
         return (
           <div key={index} className="my-6 flex justify-center">
-            <img src={imageMatch[1]} alt="Ilustrasi" className="max-w-full rounded-lg shadow-md max-h-[500px] object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+            <img 
+                src={imageMatch[1]} 
+                alt="Ilustrasi" 
+                className="max-w-full rounded-lg shadow-md max-h-[500px] object-contain" 
+                onError={(e) => { 
+                    e.target.style.display = 'none'; 
+                    // Opsi: Tampilkan pesan error kecil jika gambar gagal muat
+                    // e.target.parentNode.innerHTML = '<span class="text-xs text-red-400">Gagal memuat gambar</span>';
+                }} 
+            />
           </div>
         );
       }
@@ -381,23 +361,37 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL GAMBAR (VERSI LINK SAJA) */}
       {showImageModal && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-fade-in">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold flex items-center gap-2"><ImageIcon className="text-orange-600" /> Upload Gambar</h3>
+              <h3 className="text-lg font-bold flex items-center gap-2"><ImageIcon className="text-orange-600" /> Sisipkan Gambar</h3>
               <button onClick={() => setShowImageModal(false)}><X size={24} /></button>
             </div>
-            <div className="space-y-4">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:bg-gray-50 transition cursor-pointer relative">
-                    <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files[0])} className="absolute inset-0 opacity-0 cursor-pointer" />
-                    <UploadCloud className="mx-auto text-gray-400 mb-2" size={32} />
-                    <p className="text-sm text-gray-600 font-medium">{imageFile ? imageFile.name : "Klik untuk pilih file"}</p>
-                    <p className="text-xs text-gray-400 mt-1">Maks 1 MB</p>
+            
+            <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-900 mb-4 border border-blue-100">
+              <p className="font-bold mb-1">Cara Pakai:</p>
+              <ul className="list-disc pl-4 opacity-90 text-xs space-y-1">
+                  <li>Upload gambar ke <strong>Google Drive</strong>.</li>
+                  <li>Ubah aksesnya menjadi <strong>"Siapa saja yang memiliki link" (Public)</strong>.</li>
+                  <li>Copy link-nya dan tempel di bawah ini.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">Link Gambar (Google Drive / URL)</label>
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <LinkIcon size={16} className="absolute left-3 top-3 text-gray-400" />
+                        <input type="text" value={tempImageUrl} onChange={(e) => setTempImageUrl(e.target.value)} placeholder="https://drive.google.com/..." className="w-full pl-9 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" />
+                    </div>
                 </div>
-                <div className="text-center text-gray-400 text-xs">- ATAU -</div>
-                <div><label className="block text-xs font-medium text-gray-700 mb-1">Link Gambar (URL)</label><input type="text" value={tempImageUrl} onChange={(e) => setTempImageUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border rounded-lg text-sm" /></div>
-                <button onClick={handleUploadAndSave} disabled={isUploading || (!imageFile && !tempImageUrl)} className="w-full bg-orange-600 text-white py-2 rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 flex justify-center items-center gap-2">{isUploading ? <><Loader2 className="animate-spin" size={18}/> Mengupload...</> : "Simpan Gambar"}</button>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+                <button onClick={() => setShowImageModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Batal</button>
+                <button onClick={handleSaveImageLink} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 shadow-sm font-medium">Simpan Gambar</button>
             </div>
           </div>
         </div>
