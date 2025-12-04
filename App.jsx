@@ -74,33 +74,19 @@ export default function App() {
     isOpen: false, title: '', message: '', onConfirm: null
   });
 
-  // --- FIX 1: RESET SCROLL (Setiap ganti halaman/chapter, layar kembali ke atas) ---
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [view, activeChapterIndex]);
+  // --- FIX SCROLL & BACK ---
+  useEffect(() => { window.scrollTo(0, 0); }, [view, activeChapterIndex]);
 
-  // --- FIX 2: BACK BUTTON HP (History API) ---
   useEffect(() => {
-    // Fungsi ini dipanggil saat tombol Back HP ditekan
     const handlePopState = (event) => {
-      if (activeChapterIndex !== null) {
-         // Jika sedang baca chapter -> Kembali ke Daftar Isi
-         setActiveChapterIndex(null);
-      } else if (view !== 'home') {
-         // Jika sedang di menu lain -> Kembali ke Home
-         setView('home');
-         setCurrentStory(null);
-      }
+      if (activeChapterIndex !== null) setActiveChapterIndex(null);
+      else if (view !== 'home') { setView('home'); setCurrentStory(null); }
     };
-
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [view, activeChapterIndex]);
 
-  // Helper: Mendorong "History" agar tombol Back HP tidak keluar app
-  const pushHistory = () => {
-     window.history.pushState(null, "", window.location.href);
-  };
+  const pushHistory = () => window.history.pushState(null, "", window.location.href);
 
   // --- AUTH & INIT ---
   useEffect(() => {
@@ -128,8 +114,7 @@ export default function App() {
 
   const handleAuth = async (e) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthLoading(true);
+    setAuthError(''); setAuthLoading(true);
     try {
         if (isRegistering) {
             if (regCode.trim() !== SECRET_CODE) throw new Error("kode-salah");
@@ -177,8 +162,7 @@ export default function App() {
   };
 
   const startEditing = (story) => {
-    pushHistory(); // Tambahkan history
-    setEditingId(story.id); setTitle(story.title);
+    pushHistory(); setEditingId(story.id); setTitle(story.title);
     setAuthorName(story.authorName || userProfile.name || ''); setCoverUrl(story.coverUrl);
     setSynopsis(story.synopsis); setChapters(story.chapters || []);
     setActiveChapterIndex(null); setChapterTitle(''); setChapterContent('');
@@ -186,8 +170,7 @@ export default function App() {
   };
 
   const startWritingNew = () => {
-      pushHistory(); // Tambahkan history
-      resetForm();
+      pushHistory(); resetForm();
       if (userProfile.name) setAuthorName(userProfile.name);
       setView('write');
   };
@@ -220,7 +203,7 @@ export default function App() {
 
   const handleDeleteChapter = (index) => {
     setConfirmModal({
-      isOpen: true, title: 'Hapus Chapter', message: 'Hapus chapter ini?',
+      isOpen: true, title: 'Hapus Bab', message: 'Hapus bab ini?',
       onConfirm: () => {
         const updatedChapters = chapters.filter((_, i) => i !== index);
         setChapters(updatedChapters);
@@ -246,7 +229,7 @@ export default function App() {
   };
 
   const handlePublish = async () => {
-    if (!title || chapters.length === 0) { showNotification("Judul & minimal 1 Chapter wajib!"); return; }
+    if (!title || chapters.length === 0) { showNotification("Judul & minimal 1 Bab wajib!"); return; }
     setIsSaving(true);
     try {
       const storyData = {
@@ -336,7 +319,7 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <div onClick={() => { resetForm(); setView('home'); }} className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition">
             <BookOpen className="text-orange-600" size={28} />
-            <span className="font-bold text-lg sm:text-xl tracking-tight text-gray-800">Pustaka<span className="text-orange-600">Kita</span></span>
+            <span className="font-bold text-lg sm:text-xl tracking-tight text-gray-800">Novel<span className="text-orange-600">in</span></span>
           </div>
           <div className="flex gap-2">
             <button onClick={() => { resetForm(); setView('home'); }} className={`p-2 rounded-full transition ${view === 'home' ? 'bg-orange-100 text-orange-600' : 'text-gray-500 hover:bg-gray-100'}`} title="Beranda"><Home size={22} /></button>
@@ -354,6 +337,7 @@ export default function App() {
 
       {notification && <div className="fixed top-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 sm:px-6 py-3 rounded-full shadow-lg z-50 animate-bounce text-sm text-center w-[90%] sm:w-auto">{notification}</div>}
 
+      {/* MODAL KONFIRMASI */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center">
@@ -400,7 +384,7 @@ export default function App() {
           <div className="animate-fade-in">
              <div className="mb-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
                <div className="relative z-10">
-                 <h1 className="text-2xl sm:text-3xl font-bold mb-2">Selamat Datang di Pustaka Kita</h1>
+                 <h1 className="text-2xl sm:text-3xl font-bold mb-2">Selamat Datang di Novelin</h1>
                  <p className="opacity-90 max-w-lg mb-6 text-sm sm:text-base">Mulai petualanganmu menulis cerita atau baca karya seru dari penulis lain.</p>
                  <div className="flex flex-wrap gap-3">
                     {user ? (<><button onClick={startWritingNew} className="bg-white text-orange-600 px-4 sm:px-6 py-2 rounded-full font-bold shadow text-sm sm:text-base hover:bg-orange-50">Tulis Cerita</button><button onClick={() => { pushHistory(); setView('profile'); }} className="bg-orange-600 border border-white/30 text-white px-4 sm:px-6 py-2 rounded-full font-bold hover:bg-orange-700 shadow text-sm sm:text-base">Profil Saya</button></>) : (<button onClick={() => { pushHistory(); setView('login'); }} className="bg-white text-orange-600 px-6 py-2 rounded-full font-bold hover:bg-orange-50 shadow">Masuk untuk Menulis</button>)}
@@ -469,7 +453,7 @@ export default function App() {
                     </div>
                     <div className="md:col-span-2 space-y-4">
                         <div className="flex justify-between items-center"><h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm sm:text-base"><BookOpen size={18} /> Cerita Saya ({stories.filter(s => s.authorId === user?.uid).length})</h3><button onClick={startWritingNew} className="text-sm text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1"><PlusCircle size={14} /> Buat Baru</button></div>
-                        <div className="space-y-3">{stories.filter(s => s.authorId === user?.uid).length === 0 ? (<div className="text-center py-10 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200"><p className="text-gray-400 text-sm">Kamu belum menulis cerita apapun.</p></div>) : (stories.filter(s => s.authorId === user?.uid).map(story => (<div key={story.id} className="bg-white p-3 rounded-lg border border-gray-100 flex gap-4 hover:shadow-md transition group"><div className="w-16 h-24 shrink-0 bg-gray-100 rounded overflow-hidden"><img src={story.coverUrl} className="w-full h-full object-contain" onError={(e) => {e.target.src = 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover'}} /></div><div className="flex-1 min-w-0 py-1"><h4 className="font-bold text-gray-800 truncate text-sm sm:text-base">{story.title}</h4><p className="text-xs text-gray-500 mb-3">{story.chapters.length} Chapter</p><div className="flex gap-2"><button onClick={() => startEditing(story)} className="text-xs bg-orange-50 text-orange-700 px-3 py-1.5 rounded-full hover:bg-orange-100 font-medium">Edit</button><button onClick={(e) => handleDeleteStory(e, story.id)} className="text-xs bg-red-50 text-red-700 px-3 py-1.5 rounded-full hover:bg-red-100 font-medium">Hapus</button></div></div></div>)))}</div>
+                        <div className="space-y-3">{stories.filter(s => s.authorId === user?.uid).length === 0 ? (<div className="text-center py-10 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200"><p className="text-gray-400 text-sm">Kamu belum menulis cerita apapun.</p></div>) : (stories.filter(s => s.authorId === user?.uid).map(story => (<div key={story.id} className="bg-white p-3 rounded-lg border border-gray-100 flex gap-4 hover:shadow-md transition group"><div className="w-16 h-24 shrink-0 bg-gray-100 rounded overflow-hidden"><img src={story.coverUrl} className="w-full h-full object-contain" onError={(e) => {e.target.src = 'https://placehold.co/400x600/e2e8f0/1e293b?text=No+Cover'}} /></div><div className="flex-1 min-w-0 py-1"><h4 className="font-bold text-gray-800 truncate text-sm sm:text-base">{story.title}</h4><p className="text-xs text-gray-500 mb-3">{story.chapters.length} Bab</p><div className="flex gap-2"><button onClick={() => startEditing(story)} className="text-xs bg-orange-50 text-orange-700 px-3 py-1.5 rounded-full hover:bg-orange-100 font-medium">Edit</button><button onClick={(e) => handleDeleteStory(e, story.id)} className="text-xs bg-red-50 text-red-700 px-3 py-1.5 rounded-full hover:bg-red-100 font-medium">Hapus</button></div></div></div>)))}</div>
                     </div>
                 </div>
             </div>
@@ -499,18 +483,18 @@ export default function App() {
             <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100">
               {activeChapterIndex === null ? (
                 <div>
-                  <div className="flex justify-between items-center mb-4 border-b pb-2"><h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm sm:text-base"><List size={18}/> Daftar Chapter ({chapters.length})</h3><button onClick={() => setActiveChapterIndex('new')} className="text-xs sm:text-sm bg-orange-100 text-orange-600 px-3 py-1.5 rounded-full hover:bg-orange-200 transition flex items-center gap-1 font-medium"><PlusCircle size={14} /> Tambah</button></div>
-                  {chapters.length === 0 ? (<div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg bg-gray-50"><p>Belum ada chapter.</p><p className="text-sm">Klik "Tambah" untuk mulai.</p></div>) : (<div className="space-y-2">{chapters.map((chap, idx) => (<div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition group"><div className="flex items-center gap-3"><span className="w-6 h-6 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span><span className="font-medium text-gray-700 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs">{chap.title}</span></div><div className="flex gap-2"><button onClick={() => handleEditChapter(idx)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={() => handleDeleteChapter(idx)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></div>))}</div>)}
+                  <div className="flex justify-between items-center mb-4 border-b pb-2"><h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm sm:text-base"><List size={18}/> Daftar Bab ({chapters.length})</h3><button onClick={() => setActiveChapterIndex('new')} className="text-xs sm:text-sm bg-orange-100 text-orange-600 px-3 py-1.5 rounded-full hover:bg-orange-200 transition flex items-center gap-1 font-medium"><PlusCircle size={14} /> Tambah</button></div>
+                  {chapters.length === 0 ? (<div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg bg-gray-50"><p>Belum ada bab.</p><p className="text-sm">Klik "Tambah" untuk mulai.</p></div>) : (<div className="space-y-2">{chapters.map((chap, idx) => (<div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition group"><div className="flex items-center gap-3"><span className="w-6 h-6 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span><span className="font-medium text-gray-700 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs">{chap.title}</span></div><div className="flex gap-2"><button onClick={() => handleEditChapter(idx)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={() => handleDeleteChapter(idx)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></div></div>))}</div>)}
                   <div className="mt-8 flex justify-end gap-3 pt-4 border-t"><button onClick={() => { resetForm(); setView('home'); }} className="px-4 sm:px-6 py-2 rounded-full border text-gray-600 hover:bg-gray-50 text-sm sm:text-base">Batal</button><button onClick={handlePublish} disabled={isSaving} className={`px-4 sm:px-6 py-2 rounded-full bg-orange-600 text-white font-semibold hover:bg-orange-700 flex items-center gap-2 text-sm sm:text-base ${isSaving ? 'opacity-50' : ''}`}><Save size={18} /> {editingId ? 'Update' : 'Terbitkan'}</button></div>
                 </div>
               ) : (
                 <div className="animate-fade-in">
-                  <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-gray-800 text-sm sm:text-base">{activeChapterIndex === 'new' ? 'Menulis Chapter Baru' : `Edit Chapter ${activeChapterIndex + 1}`}</h3></div>
+                  <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-gray-800 text-sm sm:text-base">{activeChapterIndex === 'new' ? 'Menulis Bab Baru' : `Edit Bab ${activeChapterIndex + 1}`}</h3></div>
                   <div className="space-y-4">
-                    <input type="text" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-lg focus:border-orange-500 outline-none" placeholder="Judul Chapter..." />
+                    <input type="text" value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} className="w-full p-3 border-2 border-gray-200 rounded-lg font-bold text-lg focus:border-orange-500 outline-none" placeholder="Judul Bab..." />
                     <div className="flex gap-2 border-b border-gray-200 mb-0"><button onClick={() => setWriteMode('edit')} className={`px-3 sm:px-4 py-2 flex items-center gap-2 text-xs sm:text-sm font-medium rounded-t-lg transition ${writeMode === 'edit' ? 'bg-orange-50 text-orange-600 border-b-2 border-orange-500' : 'text-gray-500 hover:bg-gray-50'}`}><FileText size={16} /> Edit</button><button onClick={() => setWriteMode('preview')} className={`px-3 sm:px-4 py-2 flex items-center gap-2 text-xs sm:text-sm font-medium rounded-t-lg transition ${writeMode === 'preview' ? 'bg-orange-50 text-orange-600 border-b-2 border-orange-500' : 'text-gray-500 hover:bg-gray-50'}`}><Eye size={16} /> Preview</button></div>
                     <div className="border border-gray-300 rounded-b-lg rounded-tr-lg overflow-hidden bg-white h-[50vh] sm:h-[60vh] flex flex-col">
-                      {writeMode === 'edit' ? (<><div className="bg-gray-50 border-b px-3 py-2 flex gap-2"><button onClick={() => openImageModal('content')} className="flex items-center gap-1 text-xs bg-white border px-3 py-1.5 rounded hover:bg-gray-100 text-gray-700"><ImageIcon size={14} /> Gambar</button></div><textarea value={chapterContent} onChange={(e) => setChapterContent(e.target.value)} className="w-full p-4 h-full outline-none resize-none font-serif text-base sm:text-lg leading-relaxed flex-1" placeholder="Tulis isi chapter di sini..." /></>) : (<div className="p-4 sm:p-6 h-full overflow-y-auto bg-white"><div className="font-serif text-gray-800 text-base sm:text-lg md:text-xl leading-relaxed whitespace-pre-wrap">{renderContent(chapterContent || "Belum ada konten.")}</div></div>)}
+                      {writeMode === 'edit' ? (<><div className="bg-gray-50 border-b px-3 py-2 flex gap-2"><button onClick={() => openImageModal('content')} className="flex items-center gap-1 text-xs bg-white border px-3 py-1.5 rounded hover:bg-gray-100 text-gray-700"><ImageIcon size={14} /> Gambar</button></div><textarea value={chapterContent} onChange={(e) => setChapterContent(e.target.value)} className="w-full p-4 h-full outline-none resize-none font-serif text-base sm:text-lg leading-relaxed flex-1" placeholder="Tulis isi bab di sini..." /></>) : (<div className="p-4 sm:p-6 h-full overflow-y-auto bg-white"><div className="font-serif text-gray-800 text-base sm:text-lg md:text-xl leading-relaxed whitespace-pre-wrap">{renderContent(chapterContent || "Belum ada konten.")}</div></div>)}
                     </div>
                     <div className="flex justify-end gap-3"><button onClick={() => setActiveChapterIndex(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm">Batal</button><button onClick={handleSaveChapterToLocal} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm">Simpan</button></div>
                   </div>
@@ -540,11 +524,11 @@ export default function App() {
                       </div>
                   </div>
                   <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                      <div className="bg-gray-50 px-4 py-3 border-b font-bold text-gray-700 text-sm">Daftar Isi ({currentStory.chapters.length} Bab)</div>
+                      <div className="bg-gray-50 px-4 py-3 border-b font-bold text-gray-700 text-sm">Daftar Bab ({currentStory.chapters.length})</div>
                       <div className="divide-y divide-gray-100">
                           {currentStory.chapters.map((chap, idx) => (
                               <div key={idx} onClick={() => { pushHistory(); setActiveChapterIndex(idx); }} className="p-4 hover:bg-orange-50 cursor-pointer flex justify-between items-center transition group">
-                                  <div><span className="text-[10px] font-bold text-orange-600 mb-1 block tracking-wider uppercase">CHAPTER {idx + 1}</span><span className="font-medium text-gray-800 group-hover:text-orange-700 text-sm sm:text-base">{chap.title}</span></div>
+                                  <div><span className="text-[10px] font-bold text-orange-600 mb-1 block tracking-wider uppercase">BAB {idx + 1}</span><span className="font-medium text-gray-800 group-hover:text-orange-700 text-sm sm:text-base">{chap.title}</span></div>
                                   <ChevronRight size={18} className="text-gray-300 group-hover:text-orange-500" />
                               </div>
                           ))}
@@ -553,7 +537,7 @@ export default function App() {
               </div>
             ) : (
               <div className="max-w-3xl mx-auto">
-                  <div className="text-center mb-8"><h2 className="text-xs font-bold text-orange-600 tracking-widest uppercase mb-1">Chapter {activeChapterIndex + 1}</h2><h1 className="text-2xl sm:text-3xl font-serif font-bold text-gray-900 leading-tight">{currentStory.chapters[activeChapterIndex].title}</h1></div>
+                  <div className="text-center mb-8"><h2 className="text-xs font-bold text-orange-600 tracking-widest uppercase mb-1">Bab {activeChapterIndex + 1}</h2><h1 className="text-2xl sm:text-3xl font-serif font-bold text-gray-900 leading-tight">{currentStory.chapters[activeChapterIndex].title}</h1></div>
                   <article className="font-serif text-gray-800 text-base sm:text-lg md:text-xl leading-relaxed whitespace-pre-wrap mb-10 px-2 sm:px-0">
                       {renderContent(currentStory.chapters[activeChapterIndex].content)}
                   </article>
